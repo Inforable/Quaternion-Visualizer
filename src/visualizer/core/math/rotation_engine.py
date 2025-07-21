@@ -27,7 +27,8 @@ class RotationEngine:
     def get_rotation_info(exis: Vector3, angle_degress: float) -> str:
         quat = Quaternion.from_axis_angle(exis, angle_degress)
         axis_norm = exis.normalize()
-
+        
+        info = f"Rotasi:\n"
         info += f"Axis: {axis_norm}\n"
         info += f"Angle: {angle_degress} degrees\n"
         info += f"Quaternion: {quat}\n"
