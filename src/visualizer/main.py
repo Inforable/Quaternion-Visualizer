@@ -1,6 +1,9 @@
 import sys
+import os
 from PySide6.QtWidgets import QApplication
-from.ui.main_window import MainWindow
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from ui.main_window import MainWindow
 
 def run_app():
     app = QApplication(sys.argv)
