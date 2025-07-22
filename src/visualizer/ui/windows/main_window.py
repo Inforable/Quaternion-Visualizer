@@ -90,30 +90,77 @@ class MainWindow(QMainWindow):
     def create_left_panel(self) -> QWidget:
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMaximumWidth(300)
-        panel.setMinimumWidth(250)
+        panel.setMaximumWidth(320)
+        panel.setMinimumWidth(280)
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+        """)
         
         layout = QVBoxLayout(panel)
-        layout.setSpacing(4)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(8)
+        layout.setContentsMargins(8, 8, 8, 8)
         
         # Controls section header
         controls_title = QLabel("Controls")
         controls_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        controls_title.setStyleSheet("color: #1976D2; border-bottom: 1px solid #1976D2; padding-bottom: 1px; margin-bottom: 1px;")
+        controls_title.setStyleSheet("""
+            QLabel { 
+                color: #4FC3F7; 
+                border-bottom: 1px solid #4FC3F7; 
+                padding-bottom: 3px; 
+                margin-bottom: 5px;
+                background: transparent;
+            }
+        """)
         layout.addWidget(controls_title)
         
         # File operations group
         file_group = QGroupBox("File Operations")
         file_group.setFont(QFont("Arial", 9))
-        file_group.setStyleSheet("QGroupBox { margin-top: 2px; }")
+        file_group.setStyleSheet("""
+            QGroupBox { 
+                font-weight: bold;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 4px;
+                background-color: #3a3a3a;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px 0 4px;
+                color: #ffffff;
+            }
+        """)
         file_layout = QVBoxLayout(file_group)
-        file_layout.setContentsMargins(3, 3, 3, 3)
-        file_layout.setSpacing(1)
+        file_layout.setContentsMargins(8, 15, 8, 8)
+        file_layout.setSpacing(4)
         
         self.load_button = QPushButton("Load OBJ File")
         self.load_button.clicked.connect(self.load_obj_file)
-        self.load_button.setStyleSheet("QPushButton { padding: 3px; font-size: 10px; max-height: 20px; }")
+        self.load_button.setStyleSheet("""
+            QPushButton { 
+                padding: 6px; 
+                font-size: 10px; 
+                min-height: 24px;
+                background-color: #4a4a4a;
+                color: #ffffff;
+                border: 1px solid #666666;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+                border: 1px solid #777777;
+            }
+            QPushButton:pressed {
+                background-color: #3a3a3a;
+            }
+        """)
         file_layout.addWidget(self.load_button)
         
         layout.addWidget(file_group)
@@ -121,9 +168,26 @@ class MainWindow(QMainWindow):
         # Rotation parameters group
         rotation_group = QGroupBox("Rotation Method & Parameters")
         rotation_group.setFont(QFont("Arial", 9))
-        rotation_group.setStyleSheet("QGroupBox { margin-top: 2px; }")
+        rotation_group.setStyleSheet("""
+            QGroupBox { 
+                font-weight: bold;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 4px;
+                background-color: #3a3a3a;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px 0 4px;
+                color: #ffffff;
+            }
+        """)
         rotation_layout = QVBoxLayout(rotation_group)
-        rotation_layout.setContentsMargins(3, 3, 3, 3)
+        rotation_layout.setContentsMargins(8, 15, 8, 8)
+        rotation_layout.setSpacing(4)
         
         self.rotation_method_widget = RotationMethodWidget()
         self.rotation_method_widget.method_changed.connect(self.on_method_changed)
@@ -134,21 +198,45 @@ class MainWindow(QMainWindow):
         # Action buttons group
         actions_group = QGroupBox("Actions")
         actions_group.setFont(QFont("Arial", 9))
-        actions_group.setStyleSheet("QGroupBox { margin-top: 2px; }")
+        actions_group.setStyleSheet("""
+            QGroupBox { 
+                font-weight: bold;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 4px;
+                background-color: #3a3a3a;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px 0 4px;
+                color: #ffffff;
+            }
+        """)
         actions_layout = QVBoxLayout(actions_group)
-        actions_layout.setContentsMargins(3, 3, 3, 3)
-        actions_layout.setSpacing(1)
-        
+        actions_layout.setContentsMargins(8, 15, 8, 8)
+        actions_layout.setSpacing(6)
+
         self.apply_button = QPushButton("Apply Rotation")
         self.apply_button.clicked.connect(self.apply_rotation)
         self.apply_button.setStyleSheet("""
             QPushButton { 
-                padding: 3px; 
-                font-size: 10px; 
-                background-color: #1976D2; 
+                padding: 8px; 
+                font-size: 11px; 
+                font-weight: bold;
+                background-color: #2196F3; 
                 color: white; 
-                border-radius: 2px;
-                max-height: 20px;
+                border-radius: 4px;
+                min-height: 28px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
             }
         """)
         actions_layout.addWidget(self.apply_button)
@@ -157,10 +245,19 @@ class MainWindow(QMainWindow):
         self.reset_button.clicked.connect(self.reset_view)
         self.reset_button.setStyleSheet("""
             QPushButton { 
-                padding: 3px; 
+                padding: 6px; 
                 font-size: 10px; 
-                border-radius: 2px;
-                max-height: 20px;
+                background-color: #4a4a4a;
+                color: #ffffff;
+                border: 1px solid #666666;
+                border-radius: 3px;
+                min-height: 24px;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+            }
+            QPushButton:pressed {
+                background-color: #3a3a3a;
             }
         """)
         actions_layout.addWidget(self.reset_button)
@@ -170,21 +267,44 @@ class MainWindow(QMainWindow):
         # Object information section
         info_title = QLabel("Object Information")
         info_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        info_title.setStyleSheet("color: #1976D2; border-bottom: 1px solid #1976D2; padding-bottom: 1px; margin-top: 2px;")
+        info_title.setStyleSheet("""
+            QLabel { 
+                color: #4FC3F7; 
+                border-bottom: 1px solid #4FC3F7; 
+                padding-bottom: 3px; 
+                margin-top: 8px;
+                margin-bottom: 5px;
+                background: transparent;
+            }
+        """)
         layout.addWidget(info_title)
         
         # Output text area
         self.output_text = QTextEdit()
         self.output_text.setReadOnly(True)
-        self.output_text.setFont(QFont("Consolas", 7))
+        self.output_text.setFont(QFont("Consolas", 8))
         self.output_text.setMaximumHeight(200)
         self.output_text.setMinimumHeight(150)
         self.output_text.setStyleSheet("""
             QTextEdit { 
-                background-color: #2C2C2C; 
-                color: #FFFFFF; 
-                border: 1px solid #555; 
-                padding: 2px;
+                background-color: #1e1e1e; 
+                color: #E8E8E8; 
+                border: 1px solid #555555; 
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QScrollBar:vertical {
+                background-color: #2b2b2b;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #555555;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #666666;
             }
         """)
         self.output_text.setText("No model loaded. Please select an OBJ file to begin.")
