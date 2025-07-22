@@ -23,8 +23,10 @@ class Vector3:
     def __sub__(self, other):
         return Vector3(self.x - other.x, self.y - other.y, self.z - other.z)
     
-    def __mul__(self, scalar: float):
-        return Vector3(self.x * scalar, self.y * scalar, self.z * scalar)
+    def __mul__(self, scalar):
+        if isinstance(scalar, (int, float)):
+            return Vector3(self.x * scalar, self.y * scalar, self.z * scalar)
+        return NotImplemented
     
     def magnitude(self) -> float:
         return math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
@@ -41,3 +43,10 @@ class Vector3:
     
     def to_vertex(self):
         return Vertex(self.x, self.y, self.z)
+    
+    def cross(self, other):
+        return Vector3(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x
+        )
