@@ -4,7 +4,7 @@ from pathlib import Path
 
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
-    sys.path.append(0, str(project_root))
+    sys.path.insert(0, str(project_root))
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt, QDir
