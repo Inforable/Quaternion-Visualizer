@@ -1,4 +1,5 @@
 import math
+
 from .vector3 import Vector3
 from .quaternion import Quaternion
 
@@ -84,16 +85,16 @@ class EulerAngle:
         return self._apply_matrix(rotation_matrix, vector)
 
     def get_rotation_axes(self) -> list:
-        # Mengambil sumbu rotasi
+        # Mengambil sumbu rotasi berdasarkan urutan Euler Angle
         axes = []
 
         for char in self.order:
             if char == 'X':
-                axes.append(Vector3(1, 0, 0), self.x_angle)
+                axes.append((Vector3(1, 0, 0), self.x_angle))
             elif char == 'Y':
-                axes.append(Vector3(0, 1, 0), self.y_angle)
+                axes.append((Vector3(0, 1, 0), self.y_angle))
             elif char == 'Z':
-                axes.append(Vector3(0, 0, 1), self.z_angle)
+                axes.append((Vector3(0, 0, 1), self.z_angle))
         
         return axes
     

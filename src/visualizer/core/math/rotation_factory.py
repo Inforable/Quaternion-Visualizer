@@ -74,22 +74,21 @@ class RotationFactory:
             axis, angle = rotation_obj.to_axis_angle()
             info += f"Equivalent axis-angle: {axis}, {angle:.1f}°\n"
         
-        elif method == RotationMethod.EULER_ANGLES:
+        elif method == RotationMethod.EULER_ANGLE:
             axes = rotation_obj.get_rotation_axes()
             info += f"Rotation sequence ({rotation_obj.order}):\n"
             for i, (axis, angle) in enumerate(axes):
                 info += f"  {i+1}. {axis} @ {angle:.1f}°\n"
         
         elif method == RotationMethod.TAIT_BRYAN:
-            orientation = rotation_obj.get_aircraft_orientation()
+            sequence = rotation_obj.get_rotation_sequence()
             info += f"Aircraft orientation:\n"
-            info += f"  Roll: {orientation['roll']}\n"
-            info += f"  Pitch: {orientation['pitch']}\n" 
-            info += f"  Yaw: {orientation['yaw']}\n"
+            for axis, angle, name in sequence:
+                info += f"  {name}: {angle:.1f}°\n"
         
         elif method == RotationMethod.EXPONENTIAL_MAP:
             axis, angle = rotation_obj.get_axis_angle()
-            omega = rotation_obj.get_logarithmic_coordinates()
+            omega = rotation_obj.omega
             info += f"Rotation vector: {omega}\n"
             info += f"Equivalent axis-angle: {axis}, {angle:.1f}°\n"
         
@@ -110,11 +109,12 @@ class RotationFactory:
             viz_data['angles'] = [angle]
             viz_data['colors'] = [(1.0, 1.0, 0.0)]
         
-        elif method == RotationMethod.EULER_ANGLES:
+        elif method == RotationMethod.EULER_ANGLE:
             rotation_axes = rotation_obj.get_rotation_axes()
             colors = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
             
-            for i, (axis, angle) in enumerate(rotation_axes):
+            for i, axis_angle_pair in enumerate(rotation_axes):
+                axis, angle = axis_angle_pair
                 if abs(angle) > 0.1:
                     viz_data['axes'].append(axis)
                     viz_data['angles'].append(angle)
@@ -124,7 +124,8 @@ class RotationFactory:
             sequence = rotation_obj.get_rotation_sequence()
             colors = [(0.0, 1.0, 1.0), (1.0, 0.0, 1.0), (1.0, 1.0, 0.0)]
             
-            for i, (axis, angle, name) in enumerate(sequence):
+            for i, sequence_item in enumerate(sequence):
+                axis, angle, name = sequence_item
                 if abs(angle) > 0.1:
                     viz_data['axes'].append(axis)
                     viz_data['angles'].append(angle)
