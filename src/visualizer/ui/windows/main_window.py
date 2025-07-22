@@ -1,8 +1,3 @@
-"""
-Main application window for Quaternion Visualizer.
-Implements complete GUI with all required controls and visualization.
-"""
-
 import sys
 from pathlib import Path
 from typing import Optional
@@ -26,12 +21,11 @@ from ...config import (
 )
 from ...core.math import Vector3, Quaternion, RotationEngine
 from ...core.io import OBJLoader, OBJData
-from ...rendering.opengl.opengl_view import OpenGLView 
-
+from ...rendering.opengl.opengl_view import OpenGLView
+from ...core.math.rotation_factory import RotationMethod, RotationFactory
+from ..widgets.rotation_method_widget import RotationMethodWidget
 
 class MainWindow(QMainWindow):
-    """Main application window with complete quaternion visualization interface."""
-    
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         
@@ -43,18 +37,15 @@ class MainWindow(QMainWindow):
         # UI References
         self.opengl_view: Optional[OpenGLView] = None
         self.output_text: Optional[QTextEdit] = None
-        
-        # Rotation controls
-        self.axis_x_spin: Optional[QDoubleSpinBox] = None
-        self.axis_y_spin: Optional[QDoubleSpinBox] = None  
-        self.axis_z_spin: Optional[QDoubleSpinBox] = None
-        self.angle_spin: Optional[QDoubleSpinBox] = None
+
+        # rotation method
+        self.current_method = RotationMethod.QUATERNION
+        self.rotation_method_widget: Optional[RotationMethodWidget] = None
         
         # Initialize UI
         self.init_ui()
     
     def init_ui(self):
-        """Initialize the complete user interface."""
         self.setWindowTitle(f"{APP_NAME}")
         self.setMinimumSize(900, 550)
         self.resize(1000, 600)
@@ -97,7 +88,6 @@ class MainWindow(QMainWindow):
         content_splitter.setSizes([280, 720])
     
     def create_left_panel(self) -> QWidget:
-        """Create compact control panel with all rotation controls."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
         panel.setMaximumWidth(300)
@@ -129,75 +119,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(file_group)
         
         # Rotation parameters group
-        rotation_group = QGroupBox("Rotation Parameters")
+        rotation_group = QGroupBox("Rotation Method & Parameters")
         rotation_group.setFont(QFont("Arial", 9))
         rotation_group.setStyleSheet("QGroupBox { margin-top: 2px; }")
-        rotation_layout = QGridLayout(rotation_group)
+        rotation_layout = QVBoxLayout(rotation_group)
         rotation_layout.setContentsMargins(3, 3, 3, 3)
-        rotation_layout.setSpacing(1)
-        rotation_layout.setVerticalSpacing(1)
-        rotation_layout.setHorizontalSpacing(2)
         
-        # Axis controls header
-        axis_label = QLabel("Rotation Axis:")
-        axis_label.setFont(QFont("Arial", 9))
-        rotation_layout.addWidget(axis_label, 0, 0, 1, 2)
-        
-        # X axis control
-        x_label = QLabel("X:")
-        x_label.setFont(QFont("Arial", 8))
-        rotation_layout.addWidget(x_label, 1, 0)
-        self.axis_x_spin = QDoubleSpinBox()
-        self.axis_x_spin.setRange(-10.0, 10.0)
-        self.axis_x_spin.setValue(DEFAULT_ROTATION_AXIS[0])
-        self.axis_x_spin.setSingleStep(0.1)
-        self.axis_x_spin.setDecimals(2)
-        self.axis_x_spin.setMaximumHeight(18)
-        self.axis_x_spin.setStyleSheet("QDoubleSpinBox { font-size: 8px; }")
-        self.axis_x_spin.valueChanged.connect(self.update_rotation_preview)
-        rotation_layout.addWidget(self.axis_x_spin, 1, 1)
-        
-        # Y axis control
-        y_label = QLabel("Y:")
-        y_label.setFont(QFont("Arial", 8))
-        rotation_layout.addWidget(y_label, 2, 0)
-        self.axis_y_spin = QDoubleSpinBox()
-        self.axis_y_spin.setRange(-10.0, 10.0)
-        self.axis_y_spin.setValue(DEFAULT_ROTATION_AXIS[1])
-        self.axis_y_spin.setSingleStep(0.1)
-        self.axis_y_spin.setDecimals(2)
-        self.axis_y_spin.setMaximumHeight(18)
-        self.axis_y_spin.setStyleSheet("QDoubleSpinBox { font-size: 8px; }")
-        self.axis_y_spin.valueChanged.connect(self.update_rotation_preview)
-        rotation_layout.addWidget(self.axis_y_spin, 2, 1)
-        
-        # Z axis control
-        z_label = QLabel("Z:")
-        z_label.setFont(QFont("Arial", 8))
-        rotation_layout.addWidget(z_label, 3, 0)
-        self.axis_z_spin = QDoubleSpinBox()
-        self.axis_z_spin.setRange(-10.0, 10.0)
-        self.axis_z_spin.setValue(DEFAULT_ROTATION_AXIS[2])
-        self.axis_z_spin.setSingleStep(0.1)
-        self.axis_z_spin.setDecimals(2)
-        self.axis_z_spin.setMaximumHeight(18)
-        self.axis_z_spin.setStyleSheet("QDoubleSpinBox { font-size: 8px; }")
-        self.axis_z_spin.valueChanged.connect(self.update_rotation_preview)
-        rotation_layout.addWidget(self.axis_z_spin, 3, 1)
-        
-        # Angle control
-        angle_label = QLabel("Angle (degrees):")
-        angle_label.setFont(QFont("Arial", 8))
-        rotation_layout.addWidget(angle_label, 4, 0)
-        self.angle_spin = QDoubleSpinBox()
-        self.angle_spin.setRange(-360.0, 360.0)
-        self.angle_spin.setValue(DEFAULT_ROTATION_ANGLE)
-        self.angle_spin.setSingleStep(1.0)
-        self.angle_spin.setDecimals(1)
-        self.angle_spin.setMaximumHeight(18)
-        self.angle_spin.setStyleSheet("QDoubleSpinBox { font-size: 8px; }")
-        self.angle_spin.valueChanged.connect(self.update_rotation_preview)
-        rotation_layout.addWidget(self.angle_spin, 4, 1)
+        self.rotation_method_widget = RotationMethodWidget()
+        self.rotation_method_widget.method_changed.connect(self.on_method_changed)
+        rotation_layout.addWidget(self.rotation_method_widget)
         
         layout.addWidget(rotation_group)
         
@@ -263,7 +193,6 @@ class MainWindow(QMainWindow):
         return panel
     
     def create_viewer_panel(self) -> QWidget:
-        """Create the 3D visualization panel."""
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
         
@@ -283,21 +212,7 @@ class MainWindow(QMainWindow):
         
         return panel
     
-    def update_rotation_preview(self):
-        """Update rotation visualization when parameters change."""
-        if self.opengl_view:
-            axis = Vector3(
-                self.axis_x_spin.value(),
-                self.axis_y_spin.value(),
-                self.axis_z_spin.value()
-            )
-            angle = self.angle_spin.value()
-            
-            # Update rotation axis and angle visualization
-            self.opengl_view.set_rotation_parameters(axis, angle)
-    
     def load_obj_file(self):
-        """Load an OBJ file using file dialog."""
         try:
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
@@ -326,34 +241,41 @@ class MainWindow(QMainWindow):
             self.output_text.append(f"\n{error_msg}")
             QMessageBox.critical(self, "Load Error", error_msg)
     
+    def on_method_changed(self, method: RotationMethod):
+        self.current_method = method
+        self.update_rotation_preview()
+    
+    def update_rotation_preview(self):
+        if self.opengl_view and self.rotation_method_widget:
+            try:
+                rotation_obj = self.rotation_method_widget.get_rotation_object()
+                viz_data = RotationFactory.get_visualization_data(rotation_obj, self.current_method)
+                self.opengl_view.set_rotation_visualization(viz_data)
+            except Exception as e:
+                print(f"Error update preview: {e}, {rotation_obj}")
+
     def apply_rotation(self):
-        """Apply quaternion rotation to the current object."""
         try:
             if not self.current_obj_data:
-                QMessageBox.warning(self, "No Data", "Please load an OBJ file first.")
+                QMessageBox.warning(self, "Tidak ada data", "Tolong muat file OBJ.")
                 return
             
-            axis = Vector3(
-                self.axis_x_spin.value(),
-                self.axis_y_spin.value(), 
-                self.axis_z_spin.value()
-            )
-            angle = self.angle_spin.value()
+            rotation_obj = self.rotation_method_widget.get_rotation_object()
             
-            is_valid, error_msg = RotationEngine.validate_rotation_parameters(axis, angle)
-            if not is_valid:
-                QMessageBox.warning(self, "Invalid Parameters", error_msg)
-                return
-            
-            self.rotated_obj_data = RotationEngine.rotate_obj_data(
-                self.current_obj_data, axis, angle
+            # Terapkan rotasi pada data objek
+            self.rotated_obj_data = RotationFactory.rotate_obj_data(
+                self.current_obj_data, rotation_obj, self.current_method
             )
             
             if self.opengl_view:
                 self.opengl_view.set_obj_data(self.current_obj_data, self.rotated_obj_data)
-                self.opengl_view.set_rotation_parameters(axis, angle)
+                
+                # Update visualisasi rotasi
+                viz_data = RotationFactory.get_visualization_data(rotation_obj, self.current_method)
+                self.opengl_view.set_rotation_visualization(viz_data)
             
-            rotation_info = RotationEngine.get_rotation_info(axis, angle)
+            # Show informasi rotasi
+            rotation_info = RotationFactory.get_rotation_info(rotation_obj, self.current_method)
             self.output_text.append(f"\n{rotation_info}")
             self.output_text.append("Rotation applied successfully!")
             
@@ -363,12 +285,16 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Rotation Error", error_msg)
     
     def reset_view(self):
-        """Reset the view to original state."""
         try:
-            self.axis_x_spin.setValue(DEFAULT_ROTATION_AXIS[0])
-            self.axis_y_spin.setValue(DEFAULT_ROTATION_AXIS[1])
-            self.axis_z_spin.setValue(DEFAULT_ROTATION_AXIS[2])
-            self.angle_spin.setValue(DEFAULT_ROTATION_ANGLE)
+            # Reset ke default metode
+            self.rotation_method_widget.method_combo.setCurrentIndex(0)  # Quaternion
+            
+            # Reset kontrol rotasi
+            if hasattr(self.rotation_method_widget.quaternion_controls, 'axis_x_spin'):
+                self.rotation_method_widget.quaternion_controls.axis_x_spin.setValue(0.0)
+                self.rotation_method_widget.quaternion_controls.axis_y_spin.setValue(0.0)
+                self.rotation_method_widget.quaternion_controls.axis_z_spin.setValue(1.0)
+                self.rotation_method_widget.quaternion_controls.angle_spin.setValue(45.0)
             
             self.rotated_obj_data = None
             
@@ -376,14 +302,13 @@ class MainWindow(QMainWindow):
                 self.opengl_view.set_obj_data(self.current_obj_data, None)
                 self.update_rotation_preview()
             
-            self.output_text.append("\nView reset to original state")
+            self.output_text.append("\nView reset to default rotation method and parameters.")
             
         except Exception as e:
-            error_msg = f"Error resetting view: {e}"
+            error_msg = f"Error saat set ulang: {e}"
             self.output_text.append(f"\n{error_msg}")
     
     def display_obj_data(self):
-        """Display information about the loaded OBJ data.""" 
         if not self.current_obj_data:
             return
         
@@ -429,4 +354,4 @@ class MainWindow(QMainWindow):
             self.output_text.setText(output)
             
         except Exception as e:
-            self.output_text.setText(f"Error displaying object data: {e}")
+            self.output_text.setText(f"Error saat menampilkan data objek: {e}")
