@@ -57,3 +57,21 @@ class RotationEngine:
 
         return True, "Parameter valid."
             
+    @staticmethod
+    def normalize_axis(axis: Vector3) -> Vector3:
+        if axis.magnitude() < 1e-10:
+            return Vector3(0, 0, 1)  # Default to Z-axis
+        
+        return axis.normalize()
+    
+    @staticmethod
+    def clamp_angle(angle_degrees: float) -> float:
+        clamped = max(-36000, min(36000, angle_degrees))
+        
+        # Normalize to -180 to 180 range
+        while clamped > 180:
+            clamped -= 360
+        while clamped < -180:
+            clamped += 360
+            
+        return clamped
