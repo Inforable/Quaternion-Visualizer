@@ -16,8 +16,8 @@ class Quaternion:
         return f"Quaternion({self.w:.3f}, {self.x:.3f}, {self.y:.3f}, {self.z:.3f})"
     
     @staticmethod
-    def from_axis_angle(axis: Vector3, angle_degress: float):
-        angle_red = math.radians(angle_degress)
+    def from_axis_angle(axis: Vector3, angle_degrees: float):
+        angle_red = math.radians(angle_degrees)
         half_angle = angle_red / 2.0
 
         normalized_axis = axis.normalize()

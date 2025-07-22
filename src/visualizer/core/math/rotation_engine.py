@@ -8,11 +8,11 @@ from ..io.obj_loader import OBJLoader, OBJData
 
 class RotationEngine:
     @staticmethod
-    def rotate_obj_data(obj_data: OBJData, axis: Vector3, angle_degress: float) -> OBJData:
-        rotation_quat = Quaternion.from_axis_angle(axis, angle_degress)
+    def rotate_obj_data(obj_data: OBJData, axis: Vector3, angle_degrees: float) -> OBJData:
+        rotation_quat = Quaternion.from_axis_angle(axis, angle_degrees)
 
         rotated_data = OBJData()
-        rotated_data.filename = f"{obj_data.filename}_rotated_{angle_degress}deg"
+        rotated_data.filename = f"{obj_data.filename}_rotated_{angle_degrees}deg"
         rotated_data.faces = obj_data.faces.copy()
 
         for vertex in obj_data.vertices:
@@ -24,13 +24,13 @@ class RotationEngine:
         return rotated_data
     
     @staticmethod
-    def get_rotation_info(exis: Vector3, angle_degress: float) -> str:
-        quat = Quaternion.from_axis_angle(exis, angle_degress)
+    def get_rotation_info(exis: Vector3, angle_degrees: float) -> str:
+        quat = Quaternion.from_axis_angle(exis, angle_degrees)
         axis_norm = exis.normalize()
-        
+
         info = f"Rotasi:\n"
         info += f"Axis: {axis_norm}\n"
-        info += f"Angle: {angle_degress} degrees\n"
+        info += f"Angle: {angle_degrees} degrees\n"
         info += f"Quaternion: {quat}\n"
 
         return info
