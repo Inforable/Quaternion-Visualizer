@@ -23,7 +23,8 @@ class RotationMethodWidget(QWidget):
         self.method_combo = QComboBox()
         for method in RotationMethod:
             self.method_combo.addItem(method.value, method)
-        self.method_combo.currentDataChanged.connect(self._on_method_changed)
+
+        self.method_combo.currentIndexChanged.connect(self._on_method_changed)
         self.method_combo.setMaximumHeight(20)
         layout.addWidget(self.method_combo)
         
@@ -44,7 +45,11 @@ class RotationMethodWidget(QWidget):
         
         layout.addWidget(self.stacked_widget)
     
-    def _on_method_changed(self, method: RotationMethod):
+    def _on_method_changed(self, index: int):
+        method = self.method_combo.itemData(index)
+        if method is None:
+            method = RotationMethod.QUATERNION
+        
         self.current_method = method
         
         # Switch to appropriate control panel
@@ -61,11 +66,18 @@ class RotationMethodWidget(QWidget):
     
     def get_rotation_object(self):
         """Get current rotation object based on active method."""
-        if self.current_method == RotationMethod.QUATERNION:
+        try:
+            if self.current_method == RotationMethod.QUATERNION:
+                return self.quaternion_controls.get_rotation()
+            elif self.current_method == RotationMethod.EULER_ANGLE:
+                return self.euler_controls.get_rotation()
+            elif self.current_method == RotationMethod.TAIT_BRYAN:
+                return self.tait_bryan_controls.get_rotation()
+            elif self.current_method == RotationMethod.EXPONENTIAL_MAP:
+                return self.exponential_controls.get_rotation()
+        except Exception as e:
+            print(f"Error getting rotation object: {e}")
+            # Fallback to default quaternion
             return self.quaternion_controls.get_rotation()
-        elif self.current_method == RotationMethod.EULER_ANGLE:
-            return self.euler_controls.get_rotation()
-        elif self.current_method == RotationMethod.TAIT_BRYAN:
-            return self.tait_bryan_controls.get_rotation()
-        elif self.current_method == RotationMethod.EXPONENTIAL_MAP:
-            return self.exponential_controls.get_rotation()
+        
+        return self.quaternion_controls.get_rotation()
