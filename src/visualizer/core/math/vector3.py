@@ -3,7 +3,7 @@ import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from visualizer.core.io.obj_loader import Vertex
+from ....visualizer.core.io.obj_loader import Vertex
 
 class Vector3:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0):
