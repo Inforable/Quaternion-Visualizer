@@ -9,6 +9,7 @@ import math
 from typing import Optional
 from ...core.io.obj_loader import OBJData
 from ...core.math.vector3 import Vector3
+from ...core.math.rotation_factory import RotationMethod
 
 class OpenGLView(QOpenGLWidget):
     def __init__(self, parent=None):
@@ -37,6 +38,9 @@ class OpenGLView(QOpenGLWidget):
         
         # Enable mouse tracking
         self.setMouseTracking(True)
+        
+        # Multiple rotation methods visualization
+        self.viz_data = None
     
     def set_obj_data(self, original_obj: OBJData, rotated_obj: OBJData = None):
         self.original_obj = original_obj
@@ -49,6 +53,10 @@ class OpenGLView(QOpenGLWidget):
         else:
             self.rotation_axis = Vector3(0, 0, 1)
         self.rotation_angle = angle
+        self.update()
+    
+    def set_rotation_visualization(self, viz_data: dict):
+        self.viz_data = viz_data
         self.update()
     
     def initializeGL(self):
@@ -114,10 +122,11 @@ class OpenGLView(QOpenGLWidget):
                 0.0, 1.0, 0.0
             )
             
-            # Draw all components safely
+            # Draw coordinate axes
             self.draw_coordinate_axes()
-            self.draw_rotation_axis()  
-            self.draw_angle_visualization()
+            
+            # Draw method-specific visualization
+            self.draw_method_specific_visualization()
             
             # Draw objects
             if self.original_obj:
@@ -135,8 +144,192 @@ class OpenGLView(QOpenGLWidget):
         except Exception as e:
             print(f"OpenGL Error in paintGL: {e}")
     
+    def draw_method_specific_visualization(self):
+        if not self.viz_data:
+            # Fallback to single axis visualization
+            self.draw_rotation_axis()
+            self.draw_angle_visualization()
+            return
+        
+        method = self.viz_data.get('method')
+        axes = self.viz_data.get('axes', [])
+        angles = self.viz_data.get('angles', [])
+        colors = self.viz_data.get('colors', [])
+        
+        if method == RotationMethod.QUATERNION:
+            self.draw_quaternion_visualization(axes, angles, colors)
+        elif method == RotationMethod.EULER_ANGLE:
+            self.draw_euler_visualization(axes, angles, colors)
+        elif method == RotationMethod.TAIT_BRYAN:
+            self.draw_tait_bryan_visualization(axes, angles, colors)
+        elif method == RotationMethod.EXPONENTIAL_MAP:
+            self.draw_exponential_visualization(axes, angles, colors)
+    
+    def draw_quaternion_visualization(self, axes, angles, colors):
+        if axes and len(axes) > 0:
+            self.rotation_axis = axes[0]
+            self.rotation_angle = angles[0] if angles else 0.0
+            self.draw_rotation_axis()
+            self.draw_angle_visualization()
+    
+    def draw_euler_visualization(self, axes, angles, colors):
+        for i, (axis, angle, color) in enumerate(zip(axes, angles, colors)):
+            if abs(angle) > 0.1:
+                self.draw_rotation_axis_with_style(axis, angle, color, f"Rotation {i+1}", offset=i*0.2)
+    
+    def draw_tait_bryan_visualization(self, axes, angles, colors):
+        labels = ["Yaw", "Pitch", "Roll"]
+        for i, (axis, angle, color) in enumerate(zip(axes, angles, colors)):
+            if abs(angle) > 0.1:
+                label = labels[i] if i < len(labels) else f"Axis {i+1}"
+                self.draw_rotation_axis_with_style(axis, angle, color, label, offset=i*0.3)
+    
+    def draw_exponential_visualization(self, axes, angles, colors):
+        if axes and len(axes) > 0:
+            axis = axes[0]
+            angle = angles[0] if angles else 0.0
+            color = colors[0] if colors else (0.5, 1.0, 0.5)
+            self.draw_exponential_vector(axis, angle, color)
+    
+    def draw_rotation_axis_with_style(self, axis, angle, color, label, offset=0.0):
+        try:
+            gl.glDisable(gl.GL_LIGHTING)
+            gl.glColor3f(*color)
+            gl.glLineWidth(3.0)
+            
+            axis_norm = axis.normalize() if axis.magnitude() > 0 else Vector3(0, 0, 1)
+            axis_length = 2.5 + offset
+            
+            # Draw axis line with offset
+            gl.glBegin(gl.GL_LINES)
+            try:
+                start_pos = axis_norm * (-axis_length)
+                end_pos = axis_norm * axis_length
+                
+                gl.glVertex3f(start_pos.x, start_pos.y, start_pos.z)
+                gl.glVertex3f(end_pos.x, end_pos.y, end_pos.z)
+            finally:
+                gl.glEnd()
+            
+            # Draw simple arrow head
+            self.draw_colored_arrow_head(end_pos, axis_norm, 0.3, color)
+            
+            # Draw angle arc if significant
+            if abs(angle) > 1.0:
+                self.draw_colored_angle_arc(axis_norm, angle, color, radius=1.0 + offset*0.5)
+            
+            gl.glEnable(gl.GL_LIGHTING)
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing rotation axis with style: {e}")
+    
+    def draw_exponential_vector(self, axis, angle, color):
+        try:
+            gl.glDisable(gl.GL_LIGHTING)
+            gl.glColor3f(*color)
+            gl.glLineWidth(4.0)
+            
+            # Calculate rotation vector (omega)
+            if axis.magnitude() > 0:
+                angle_rad = math.radians(angle)
+                omega = axis.normalize() * angle_rad
+                
+                # Draw vector from origin
+                gl.glBegin(gl.GL_LINES)
+                try:
+                    gl.glVertex3f(0, 0, 0)
+                    gl.glVertex3f(omega.x * 2, omega.y * 2, omega.z * 2)
+                finally:
+                    gl.glEnd()
+                
+                # Draw magnitude indicator
+                magnitude = omega.magnitude()
+                if magnitude > 0.1:
+                    self.draw_magnitude_indicator(omega, magnitude, color)
+            
+            gl.glEnable(gl.GL_LIGHTING)
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing exponential vector: {e}")
+    
+    def draw_colored_arrow_head(self, position, direction, size, color):
+        try:
+            gl.glColor3f(*color)
+            gl.glLineWidth(2.0)
+            
+            gl.glPushMatrix()
+            gl.glTranslatef(position.x, position.y, position.z)
+            
+            if abs(direction.z) < 0.9:
+                perp1 = Vector3(0, 0, 1).cross(direction).normalize() * size
+            else:
+                perp1 = Vector3(1, 0, 0).cross(direction).normalize() * size
+            
+            perp2 = direction.cross(perp1).normalize() * size
+            back = direction * (-size)
+            
+            gl.glBegin(gl.GL_LINES)
+            try:
+                gl.glVertex3f(0, 0, 0)
+                gl.glVertex3f(back.x + perp1.x, back.y + perp1.y, back.z + perp1.z)
+                gl.glVertex3f(0, 0, 0)
+                gl.glVertex3f(back.x - perp1.x, back.y - perp1.y, back.z - perp1.z)
+            finally:
+                gl.glEnd()
+            
+            gl.glPopMatrix()
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing colored arrow head: {e}")
+    
+    def draw_colored_angle_arc(self, axis, angle, color, radius=1.5):
+        try:
+            gl.glColor3f(*color)
+            gl.glLineWidth(2.0)
+            
+            if abs(axis.z) < 0.9:
+                u = Vector3(0, 0, 1).cross(axis).normalize()
+            else:
+                u = Vector3(1, 0, 0).cross(axis).normalize()
+            v = axis.cross(u).normalize()
+            
+            steps = max(8, int(abs(angle) / 5))
+            gl.glBegin(gl.GL_LINE_STRIP)
+            try:
+                for i in range(steps + 1):
+                    progress = (i / steps) * math.radians(abs(angle))
+                    if angle < 0:
+                        progress = -progress
+                    
+                    point = (u * math.cos(progress) + v * math.sin(progress)) * radius
+                    gl.glVertex3f(point.x, point.y, point.z)
+            finally:
+                gl.glEnd()
+            
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing colored angle arc: {e}")
+    
+    def draw_magnitude_indicator(self, omega, magnitude, color):
+        try:
+            gl.glPointSize(max(6.0, min(20.0, magnitude * 10)))
+            gl.glBegin(gl.GL_POINTS)
+            try:
+                gl.glColor3f(*color)
+                gl.glVertex3f(omega.x * 2, omega.y * 2, omega.z * 2)
+            finally:
+                gl.glEnd()
+            
+            gl.glPointSize(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing magnitude indicator: {e}")
+    
     def draw_coordinate_axes(self):
-        """Draw XYZ coordinate axes safely."""
         try:
             gl.glDisable(gl.GL_LIGHTING)
             gl.glLineWidth(2.0)
@@ -194,7 +387,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing coordinate axes: {e}")
     
     def draw_axis_arrow_head(self, position: Vector3, direction: Vector3, size: float, color: tuple):
-        """Draw arrow head safely."""
         try:
             gl.glColor3f(*color)
             gl.glLineWidth(2.0)
@@ -235,7 +427,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing arrow head: {e}")
     
     def draw_rotation_axis(self):
-        """Draw rotation axis safely."""
         if self.rotation_axis.magnitude() == 0:
             return
         
@@ -282,7 +473,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing rotation axis: {e}")
     
     def draw_rotation_arrow_head(self, position: Vector3, direction: Vector3, size: float):
-        """Draw rotation arrow head safely."""
         try:
             gl.glColor3f(1.0, 1.0, 0.0)
             gl.glLineWidth(3.0)
@@ -323,7 +513,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing rotation arrow head: {e}")
     
     def draw_angle_visualization(self):
-        """Draw angle visualization safely."""
         if abs(self.rotation_angle) < 0.1 or self.rotation_axis.magnitude() == 0:
             return
         
@@ -416,7 +605,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing angle visualization: {e}")
     
     def draw_obj(self, obj_data: OBJData, color=(1.0, 1.0, 1.0)):
-        """Draw object safely."""
         if not obj_data or not obj_data.vertices or not obj_data.faces:
             return
         
@@ -488,7 +676,6 @@ class OpenGLView(QOpenGLWidget):
             print(f"Error drawing object: {e}")
     
     def calculate_face_normals(self, obj_data: OBJData) -> list:
-        """Calculate face normals safely."""
         normals = []
         
         try:
