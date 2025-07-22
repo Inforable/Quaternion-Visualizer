@@ -1,2 +1,14 @@
-venv/
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+lib/
+lib64/
+*.egg
+venv/
+env/
+ENV/
+logs/
+*.log

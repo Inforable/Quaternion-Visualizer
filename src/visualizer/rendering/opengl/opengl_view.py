@@ -7,7 +7,6 @@ import math
 
 from ...core.io.obj_loader import OBJData
 
-
 class OpenGLView(QOpenGLWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
