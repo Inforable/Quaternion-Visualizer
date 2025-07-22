@@ -1,3 +1,3 @@
-from opengl import OpenGLView
+from .opengl import OpenGLView
 
 __all__ = ["OpenGLView"]
