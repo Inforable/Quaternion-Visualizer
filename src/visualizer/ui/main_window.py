@@ -8,16 +8,18 @@ from visualizer.core.io.obj_loader import OBJLoader, OBJData
 from visualizer.core.math.vector3 import Vector3
 from visualizer.core.math.quaternion import Quaternion
 from visualizer.core.math.rotation_engine import RotationEngine
+from .opengl_view import OpenGL3DView
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_obj_data: OBJData = None
+        self.original_obj_data: OBJData = None
         self.setup_ui()
     
     def setup_ui(self):
         self.setWindowTitle("Quaternion Visualizer")
-        self.setGeometry(100, 100, 1000, 600)
+        self.setGeometry(100, 100, 1400, 800)
 
         # Central widget
         central_widget = QWidget()
@@ -63,7 +65,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(QLabel("Input Axis Z:"))
         self.axis_z = QDoubleSpinBox()
         self.axis_z.setRange(-10.0, 10.0)
-        self.axis_z.setValue(0.0)
+        self.axis_z.setValue(1.0)
         self.axis_z.setDecimals(2)
         controls_layout.addWidget(self.axis_z)
 
@@ -86,15 +88,28 @@ class MainWindow(QMainWindow):
         self.reset_button.setEnabled(False) # False selama tidak ada file dimuat
         controls_layout.addWidget(self.reset_button)
 
+        # Kontrol 3D View
+        controls_layout.addWidget(QLabel("3D View"))
+
+        self.reset_camera_button = QPushButton("Reset Kamera")
+        self.reset_camera_button.clicked.connect(self.reset_camera)
+        controls_layout.addWidget(self.reset_camera_button)
+
         # Set layout ke controls
         controls.setLayout(controls_layout)
+
+        # Center panel for 3D View
+        self.viewer_3d = OpenGL3DView()
+        self.viewer_3d.setMinimumWidth(600)
 
         # Right panel for output
         self.output_text = QTextEdit()
         self.output_text.setReadOnly(True)
+        self.output_text.setMaximumWidth(400)
 
         # Layout
         main_layout.addWidget(controls)
+        main_layout.addWidget(self.viewer_3d)
         main_layout.addWidget(self.output_text)
         central_widget.setLayout(main_layout)
 
@@ -128,6 +143,17 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Status: Berhasil memuat {self.current_obj_data.filename}")
             
             self.rotate_button.setEnabled(True)
+            
+            # Store original data for reset
+            self.original_obj_data = OBJData()
+            self.original_obj_data.filename = self.current_obj_data.filename
+            self.original_obj_data.vertices = [v for v in self.current_obj_data.vertices]
+            self.original_obj_data.faces = [f for f in self.current_obj_data.faces]
+
+            # Atur ke 3D view
+            self.viewer_3d.set_original_object(self.current_obj_data)
+
+            self.display_obj_data()
         
         except FileNotFoundError as e:
             self.status_label.setText(f"Status: {str(e)}")
@@ -142,7 +168,7 @@ class MainWindow(QMainWindow):
         
         output = f"File: {self.current_obj_data.filename}\n\n"
 
-        # Display vertices
+        # Display first 10 vertices
         output += "Vertices:\n"
         for i, vertex in enumerate(self.current_obj_data.vertices[:10]):
             output += f"v{i:3d}: {vertex}\n"
@@ -150,7 +176,7 @@ class MainWindow(QMainWindow):
         if len(self.current_obj_data.vertices) > 10:
             output += f"... dan {len(self.current_obj_data.vertices) - 10} vertex lainnya.\n\n"
         
-        # Display faces
+        # Display first 10 faces
         output += "Faces:\n"
         for i, face in enumerate(self.current_obj_data.faces[:10]):
             output += f"f{i:3d}: {face}\n"
@@ -198,6 +224,10 @@ class MainWindow(QMainWindow):
             # Terapkan rotasi quaternion
             rotated_data = RotationEngine.rotate_obj_data(self.current_obj_data, axis, angle)
 
+            # Atur ke 3d view
+            self.viewer_3d.set_rotated_object(rotated_data)
+            self.viewer_3d.set_rotation_info(axis, angle)
+
             # Tampilkan hasil rotasi
             output = ""
             output += f"Hasil rotasi:\n"
@@ -230,6 +260,10 @@ class MainWindow(QMainWindow):
             self.current_obj_data.filename = self.original_obj_data.filename
             self.current_obj_data.vertices = [v for v in self.original_obj_data.vertices]
             self.current_obj_data.faces = [f for f in self.original_obj_data.faces]
+
+            # Atur ke 3D view
+            self.viewer_3d.set_original_object(self.current_obj_data)
+            self.viewer_3d.clear_rotated_object()
             
             self.status_label.setText(f"Status: Objek telah direset ke {self.current_obj_data.filename}")
             self.output_text.setText("Objek telah direset.")
@@ -237,3 +271,9 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Status: Tidak ada objek yang dimuat untuk direset.")
             self.output_text.setText("Error: Tidak ada objek yang dimuat untuk direset.")
 
+    def reset_camera(self):
+        try:
+            self.viewer_3d.reset_camera()
+            self.output_text.setText("Kamera telah direset ke posisi default\n\nKontrol mouse:\n")
+        except Exception as e:
+            self.output_text.setText(f"Error resetting camera: {str(e)}")
