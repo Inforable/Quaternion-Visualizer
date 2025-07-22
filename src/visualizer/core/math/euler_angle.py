@@ -9,6 +9,7 @@ class EulerAngle:
         self.x_angle = x_angle
         self.y_angle = y_angle
         self.z_angle = z_angle
+        self.order = order.upper()
 
         if order not in self.ROTATION_ORDERS:
             raise ValueError(f"Urutan rotasi tidak valid, harus salah satu dari {self.ROTATION_ORDERS}")

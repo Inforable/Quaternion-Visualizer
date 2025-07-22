@@ -9,7 +9,7 @@ from ..io.obj_loader import OBJData
 class RotationMethod(Enum):
     QUATERNION = "Quaternion"
     EULER_ANGLE = "Euler Angle"
-    Tait_BRYAN = "Tait-Bryan"
+    TAIT_BRYAN = "Tait-Bryan"
     EXPONENTIAL_MAP = "Exponential Map"
 
 class RotationFactory:
@@ -56,7 +56,7 @@ class RotationFactory:
             elif method == RotationMethod.TAIT_BRYAN:
                 rotated_vector = rotation_obj.rotate_vector(vector)
             elif method == RotationMethod.EXPONENTIAL_MAP:
-                rotated_vector = rotation_obj.to_rotation_matrix().apply_to_vector(vector)
+                rotated_vector = rotation_obj.rotate_vector(vector)
             else:
                 rotated_vector = vector
             

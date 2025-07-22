@@ -34,6 +34,7 @@ class TaitBryan:
             [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
             [-sp, cp * sr, cp * cr]
         ]
+        return R
 
     def _apply_matrix(self, matrix: list, vector: Vector3) -> Vector3:
         x = matrix[0][0] * vector.x + matrix[0][1] * vector.y + matrix[0][2] * vector.z
