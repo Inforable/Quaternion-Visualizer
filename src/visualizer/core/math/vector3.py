@@ -2,7 +2,7 @@ import math
 import sys
 import os
 
-from ....visualizer.core.io.obj_loader import Vertex
+from ..io.obj_loader import Vertex
 
 class Vector3:
     def __init__(self, x: float = 0.0, y: float = 0.0, z: float = 0.0):

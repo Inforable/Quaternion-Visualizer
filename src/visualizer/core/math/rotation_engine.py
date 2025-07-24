@@ -7,7 +7,7 @@ class RotationEngine:
     def rotate_obj_data(obj_data: OBJData, axis: Vector3, angle_degrees: float) -> OBJData:
         # Cek apakah obj_data valid
         if not obj_data or not obj_data.vertices:
-            raise ValueError("OBJJ data yang tersedia tidak valid atau tidak memiliki vertex.")
+            raise ValueError("OBJ data yang tersedia tidak valid atau tidak memiliki vertex.")
 
         # Cek apakah axis rotasi adalah nol
         if axis.magnitude() == 0:

@@ -99,10 +99,10 @@ class EulerAngle:
         return axes
     
     def to_quaternion(self) -> Quaternion:
-        # KOnversi tiap rotasi ke quaternion dan kalikan
-        qx = Quaternion.from_axis_angle(Vector3(1, 0, 0), math.radians(self.x_angle))
-        qy = Quaternion.from_axis_angle(Vector3(0, 1, 0), math.radians(self.y_angle))
-        qz = Quaternion.from_axis_angle(Vector3(0, 0, 1), math.radians(self.z_angle))
+        # Konversi tiap rotasi ke quaternion dan kalikan
+        qx = Quaternion.from_axis_angle(Vector3(1, 0, 0), self.x_angle)
+        qy = Quaternion.from_axis_angle(Vector3(0, 1, 0), self.y_angle)  
+        qz = Quaternion.from_axis_angle(Vector3(0, 0, 1), self.z_angle)
 
         # terapkan urutan rotasi
         if self.order == "XYZ":
