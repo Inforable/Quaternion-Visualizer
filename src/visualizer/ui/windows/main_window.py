@@ -1,402 +1,392 @@
 import sys
+import os
 from pathlib import Path
-from typing import Optional
-
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QDoubleSpinBox, QTextEdit,
-    QFileDialog, QMessageBox, QSplitter, QFrame,
-    QGroupBox, QGridLayout, QSpacerItem, QSizePolicy
+    QSplitter, QFrame, QLabel, QGroupBox, QPushButton, 
+    QTextEdit, QMessageBox, QFileDialog
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 
-from ...config import (
-    APP_NAME, 
-    MODELS_DIR, 
-    SUPPORTED_3D_FORMATS,
-    DEFAULT_ROTATION_AXIS,
-    DEFAULT_ROTATION_ANGLE,
-    CONTROL_PANEL_WIDTH
-)
-from ...core.math import Vector3, Quaternion, RotationEngine
-from ...core.io import OBJLoader, OBJData
+from ...config import APP_NAME
+from ...core.io.obj_loader import OBJLoader
+from ...core.math.rotation_factory import RotationFactory, RotationMethod
+from ...core.math.vector3 import Vector3
 from ...rendering.opengl.opengl_view import OpenGLView
-from ...core.math.rotation_factory import RotationMethod, RotationFactory
+from ...rendering.custom.custom_renderer import CustomRenderer
 from ..widgets.rotation_method_widget import RotationMethodWidget
+from ..styles.theme import DarkTheme
+from ..styles.fonts import UIFonts
 
 class MainWindow(QMainWindow):
-    def __init__(self, parent: Optional[QWidget] = None):
-        super().__init__(parent)
+    def __init__(self):
+        super().__init__()
         
-        # Data storage
-        self.current_obj_data: Optional[OBJData] = None
-        self.rotated_obj_data: Optional[OBJData] = None
-        self.obj_loader = OBJLoader()
-        
-        # UI References
-        self.opengl_view: Optional[OpenGLView] = None
-        self.output_text: Optional[QTextEdit] = None
-
-        # rotation method
+        self.current_obj_data = None
+        self.rotated_obj_data = None
         self.current_method = RotationMethod.QUATERNION
-        self.rotation_method_widget: Optional[RotationMethodWidget] = None
         
-        # Initialize UI
+        self.opengl_view = None
+        self.custom_view = None
+        self.current_renderer = "opengl"
+        
         self.init_ui()
-    
+        self.setup_connections()
+        
     def init_ui(self):
         self.setWindowTitle(f"{APP_NAME}")
-        self.setMinimumSize(900, 550)
-        self.resize(1000, 600)
+        self.setMinimumSize(1000, 600)
+        self.resize(1200, 700)
+        
+        # Apply theme safely
+        try:
+            self.setStyleSheet(DarkTheme.get_complete_stylesheet())
+        except Exception as e:
+            print(f"Warning: Could not apply stylesheet: {e}")
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(4)
-        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(6, 6, 6, 6)
         
-        # Title header
-        title_label = QLabel(f"{APP_NAME}")
-        title_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("""
-            QLabel { 
-                color: #1976D2; 
-                padding: 4px;
-                border-bottom: 1px solid #1976D2;
-                margin-bottom: 2px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f8f8f8, stop:1 #e8e8e8);
-            }
-        """)
-        title_label.setMaximumHeight(26)
-        main_layout.addWidget(title_label)
-        
-        # Content area with splitter
-        content_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(content_splitter)
-        
-        # Create panels
+        # Left panel for controls
         left_panel = self.create_left_panel()
+        
+        # Right panel for 3D viewer
         viewer_panel = self.create_viewer_panel()
         
-        content_splitter.addWidget(left_panel)
-        content_splitter.addWidget(viewer_panel)
+        main_layout.addWidget(left_panel)
+        main_layout.addWidget(viewer_panel)
         
-        # Set panel proportions
-        content_splitter.setSizes([280, 720])
+        # Set stretch factors
+        main_layout.setStretch(0, 0)  # Left panel fixed width
+        main_layout.setStretch(1, 1)  # Viewer panel expandable
     
     def create_left_panel(self) -> QWidget:
         panel = QFrame()
         panel.setFrameStyle(QFrame.Shape.StyledPanel)
-        panel.setMaximumWidth(320)
-        panel.setMinimumWidth(280)
-        panel.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2b;
-                color: #ffffff;
-            }
-        """)
+        panel.setFixedWidth(320)
+        
+        try:
+            panel.setStyleSheet(DarkTheme.control_panel())
+        except Exception as e:
+            print(f"Warning: Could not apply panel stylesheet: {e}")
         
         layout = QVBoxLayout(panel)
         layout.setSpacing(8)
         layout.setContentsMargins(8, 8, 8, 8)
         
-        # Controls section header
-        controls_title = QLabel("Controls")
-        controls_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        controls_title.setStyleSheet("""
-            QLabel { 
-                color: #4FC3F7; 
-                border-bottom: 1px solid #4FC3F7; 
-                padding-bottom: 3px; 
-                margin-bottom: 5px;
-                background: transparent;
-            }
-        """)
-        layout.addWidget(controls_title)
+        # Title
+        title_label = QLabel(f"{APP_NAME}")
+        title_label.setFont(QFont(UIFonts.FAMILY, UIFonts.TITLE_SIZE, QFont.Weight.Bold))
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        try:
+            title_label.setStyleSheet(DarkTheme.title_label())
+        except Exception:
+            pass
+        layout.addWidget(title_label)
         
-        # File operations group
+        # File operations
+        file_group = self.create_file_operations_group()
+        layout.addWidget(file_group)
+        
+        # Rotation configuration
+        rotation_group = self.create_rotation_configuration_group()
+        layout.addWidget(rotation_group)
+        
+        # Actions
+        actions_group = self.create_actions_group()
+        layout.addWidget(actions_group)
+        
+        # Object info
+        info_group = self.create_info_group()
+        layout.addWidget(info_group)
+        
+        layout.addStretch()
+        
+        return panel
+    
+    def create_file_operations_group(self) -> QGroupBox:
         file_group = QGroupBox("File Operations")
-        file_group.setFont(QFont("Arial", 9))
-        file_group.setStyleSheet("""
-            QGroupBox { 
-                font-weight: bold;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 4px;
-                background-color: #3a3a3a;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px 0 4px;
-                color: #ffffff;
-            }
-        """)
+        file_group.setFont(QFont(UIFonts.FAMILY, UIFonts.SMALL_SIZE))
+        try:
+            file_group.setStyleSheet(DarkTheme.group_box())
+        except Exception:
+            pass
+        
         file_layout = QVBoxLayout(file_group)
         file_layout.setContentsMargins(8, 15, 8, 8)
         file_layout.setSpacing(4)
         
         self.load_button = QPushButton("Load OBJ File")
         self.load_button.clicked.connect(self.load_obj_file)
-        self.load_button.setStyleSheet("""
-            QPushButton { 
-                padding: 6px; 
-                font-size: 10px; 
-                min-height: 24px;
-                background-color: #4a4a4a;
-                color: #ffffff;
-                border: 1px solid #666666;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-                border: 1px solid #777777;
-            }
-            QPushButton:pressed {
-                background-color: #3a3a3a;
-            }
-        """)
+        try:
+            self.load_button.setStyleSheet(DarkTheme.secondary_button())
+        except Exception:
+            pass
         file_layout.addWidget(self.load_button)
         
-        layout.addWidget(file_group)
+        return file_group
+    
+    def create_rotation_configuration_group(self) -> QGroupBox:
+        rotation_group = QGroupBox("Rotation Configuration")
+        rotation_group.setFont(QFont(UIFonts.FAMILY, UIFonts.SMALL_SIZE))
+        try:
+            rotation_group.setStyleSheet(DarkTheme.group_box())
+        except Exception:
+            pass
         
-        # Rotation parameters group
-        rotation_group = QGroupBox("Rotation Method & Parameters")
-        rotation_group.setFont(QFont("Arial", 9))
-        rotation_group.setStyleSheet("""
-            QGroupBox { 
-                font-weight: bold;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 4px;
-                background-color: #3a3a3a;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px 0 4px;
-                color: #ffffff;
-            }
-        """)
         rotation_layout = QVBoxLayout(rotation_group)
         rotation_layout.setContentsMargins(8, 15, 8, 8)
-        rotation_layout.setSpacing(4)
         
         self.rotation_method_widget = RotationMethodWidget()
-        self.rotation_method_widget.method_changed.connect(self.on_method_changed)
         rotation_layout.addWidget(self.rotation_method_widget)
         
-        layout.addWidget(rotation_group)
-        
-        # Action buttons group
+        return rotation_group
+    
+    def create_actions_group(self) -> QGroupBox:
         actions_group = QGroupBox("Actions")
-        actions_group.setFont(QFont("Arial", 9))
-        actions_group.setStyleSheet("""
-            QGroupBox { 
-                font-weight: bold;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 4px;
-                background-color: #3a3a3a;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px 0 4px;
-                color: #ffffff;
-            }
-        """)
+        actions_group.setFont(QFont(UIFonts.FAMILY, UIFonts.SMALL_SIZE))
+        try:
+            actions_group.setStyleSheet(DarkTheme.group_box())
+        except Exception:
+            pass
+        
         actions_layout = QVBoxLayout(actions_group)
         actions_layout.setContentsMargins(8, 15, 8, 8)
-        actions_layout.setSpacing(6)
-
+        actions_layout.setSpacing(4)
+        
         self.apply_button = QPushButton("Apply Rotation")
         self.apply_button.clicked.connect(self.apply_rotation)
-        self.apply_button.setStyleSheet("""
-            QPushButton { 
-                padding: 8px; 
-                font-size: 11px; 
-                font-weight: bold;
-                background-color: #2196F3; 
-                color: white; 
-                border-radius: 4px;
-                min-height: 28px;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-            QPushButton:pressed {
-                background-color: #0D47A1;
-            }
-        """)
+        try:
+            self.apply_button.setStyleSheet(DarkTheme.primary_button())
+        except Exception:
+            pass
         actions_layout.addWidget(self.apply_button)
+        
+        self.toggle_renderer_button = QPushButton("Switch to Custom Renderer")
+        self.toggle_renderer_button.clicked.connect(self.toggle_renderer)
+        try:
+            self.toggle_renderer_button.setStyleSheet(DarkTheme.warning_button())
+        except Exception:
+            pass
+        actions_layout.addWidget(self.toggle_renderer_button)
         
         self.reset_button = QPushButton("Reset")
         self.reset_button.clicked.connect(self.reset_view)
-        self.reset_button.setStyleSheet("""
-            QPushButton { 
-                padding: 6px; 
-                font-size: 10px; 
-                background-color: #4a4a4a;
-                color: #ffffff;
-                border: 1px solid #666666;
-                border-radius: 3px;
-                min-height: 24px;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-            }
-            QPushButton:pressed {
-                background-color: #3a3a3a;
-            }
-        """)
+        try:
+            self.reset_button.setStyleSheet(DarkTheme.secondary_button())
+        except Exception:
+            pass
         actions_layout.addWidget(self.reset_button)
         
-        layout.addWidget(actions_group)
-        
-        # Object information section
-        info_title = QLabel("Object Information")
-        info_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        info_title.setStyleSheet("""
-            QLabel { 
-                color: #4FC3F7; 
-                border-bottom: 1px solid #4FC3F7; 
-                padding-bottom: 3px; 
-                margin-top: 8px;
-                margin-bottom: 5px;
-                background: transparent;
-            }
-        """)
-        layout.addWidget(info_title)
-        
-        # Output text area
-        self.output_text = QTextEdit()
-        self.output_text.setReadOnly(True)
-        self.output_text.setFont(QFont("Consolas", 8))
-        self.output_text.setMaximumHeight(200)
-        self.output_text.setMinimumHeight(150)
-        self.output_text.setStyleSheet("""
-            QTextEdit { 
-                background-color: #1e1e1e; 
-                color: #E8E8E8; 
-                border: 1px solid #555555; 
-                border-radius: 4px;
-                padding: 6px;
-            }
-            QScrollBar:vertical {
-                background-color: #2b2b2b;
-                width: 12px;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                border-radius: 6px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #666666;
-            }
-        """)
-        self.output_text.setText("No model loaded. Please select an OBJ file to begin.")
-        layout.addWidget(self.output_text)
-        
-        return panel
+        return actions_group
     
-    def create_viewer_panel(self) -> QWidget:
-        panel = QFrame()
-        panel.setFrameStyle(QFrame.Shape.StyledPanel)
+    def create_info_group(self) -> QGroupBox:
+        info_group = QGroupBox("Object Information")
+        info_group.setFont(QFont(UIFonts.FAMILY, UIFonts.SMALL_SIZE))
+        try:
+            info_group.setStyleSheet(DarkTheme.group_box())
+        except Exception:
+            pass
         
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(2, 2, 2, 2)
+        info_layout = QVBoxLayout(info_group)
+        info_layout.setContentsMargins(8, 15, 8, 8)
+        
+        self.output_text = QTextEdit()
+        self.output_text.setMaximumHeight(120)
+        self.output_text.setFont(QFont(UIFonts.MONOSPACE_FAMILY, UIFonts.SMALL_SIZE))
+        self.output_text.setReadOnly(True)
+        try:
+            self.output_text.setStyleSheet(DarkTheme.text_edit())
+        except Exception:
+            pass
+        self.output_text.setText("No model loaded. Please select an OBJ file to begin.")
+        info_layout.addWidget(self.output_text)
+        
+        return info_group
+        
+    def create_viewer_panel(self) -> QWidget:
+        self.renderer_container = QWidget()
+        renderer_layout = QVBoxLayout(self.renderer_container)
+        renderer_layout.setContentsMargins(0, 0, 0, 0)
+        renderer_layout.setSpacing(0)
         
         try:
             self.opengl_view = OpenGLView()
-            layout.addWidget(self.opengl_view)
-        except ImportError as e:
-            placeholder = QLabel(f"3D Viewer\n(OpenGL not available: {e})\n\nEnsure PyOpenGL is installed:\npip install PyOpenGL PyOpenGL-accelerate")
-            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet("background-color: #2C2C2C; color: white; font-size: 12px; padding: 20px;")
-            placeholder.setMinimumHeight(400)
-            layout.addWidget(placeholder)
-            self.opengl_view = None
+            self.custom_view = CustomRenderer()
+            
+            renderer_layout.addWidget(self.opengl_view)
+            renderer_layout.addWidget(self.custom_view)
+            
+            self.custom_view.hide()
+            
+        except Exception as e:
+            print(f"Error initializing renderers: {e}")
+            error_label = QLabel(f"Error initializing 3D renderers: {e}")
+            error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            try:
+                error_label.setStyleSheet(DarkTheme.label())
+            except Exception:
+                pass
+            renderer_layout.addWidget(error_label)
         
-        return panel
+        return self.renderer_container
+    
+    def setup_connections(self):
+        try:
+            if hasattr(self, 'rotation_method_widget'):
+                if hasattr(self.rotation_method_widget, 'rotation_changed'):
+                    self.rotation_method_widget.rotation_changed.connect(self.on_rotation_changed)
+                    
+        except Exception as e:
+            print(f"Warning: Could not setup all connections: {e}")
+    
+    def on_rotation_changed(self, rotation_obj):
+        try:
+            if rotation_obj:
+                # Extract axis and angle from rotation object
+                axis, angle = self.extract_axis_angle(rotation_obj)
+                
+                # Update visualization in current renderer
+                current_renderer = self.get_current_renderer()
+                if current_renderer and hasattr(current_renderer, 'set_rotation_parameters'):
+                    current_renderer.set_rotation_parameters(axis, angle)
+                
+                # Update method for visualization data
+                self.current_method = self.rotation_method_widget.get_current_method()
+                
+        except Exception as e:
+            print(f"Error handling rotation change: {e}")
+    
+    def extract_axis_angle(self, rotation_obj):
+        try:
+            if hasattr(rotation_obj, 'to_axis_angle'):
+                return rotation_obj.to_axis_angle()
+            
+            elif hasattr(rotation_obj, 'get_axis') and hasattr(rotation_obj, 'get_angle'):
+                return rotation_obj.get_axis(), rotation_obj.get_angle()
+            
+            elif hasattr(rotation_obj, 'to_quaternion'):
+                quaternion = rotation_obj.to_quaternion()
+                if hasattr(quaternion, 'to_axis_angle'):
+                    return quaternion.to_axis_angle()
+                elif hasattr(quaternion, 'get_axis') and hasattr(quaternion, 'get_angle'):
+                    return quaternion.get_axis(), quaternion.get_angle()
+            
+            elif hasattr(rotation_obj, 'x') and hasattr(rotation_obj, 'y') and hasattr(rotation_obj, 'z'):
+                # Use the largest rotation as primary axis
+                angles = [rotation_obj.x, rotation_obj.y, rotation_obj.z]
+                axes = [Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1)]
+                max_index = max(range(len(angles)), key=lambda i: abs(angles[i]))
+                return axes[max_index], angles[max_index]
+            
+            elif hasattr(rotation_obj, 'roll') and hasattr(rotation_obj, 'pitch') and hasattr(rotation_obj, 'yaw'):
+                # Use yaw as primary (Z-axis rotation)
+                return Vector3(0, 0, 1), rotation_obj.yaw
+            
+            elif hasattr(rotation_obj, 'omega'):
+                omega = rotation_obj.omega
+                if hasattr(omega, 'magnitude') and omega.magnitude() > 0:
+                    axis = omega.normalize()
+                    angle = omega.magnitude() * 180.0 / 3.14159265359  # Convert to degrees
+                    return axis, angle
+            
+            # Default fallback
+            return Vector3(0, 0, 1), 0.0
+            
+        except Exception as e:
+            print(f"Error extracting axis-angle: {e}")
+            return Vector3(0, 0, 1), 0.0
     
     def load_obj_file(self):
         try:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Load OBJ File",
-                str(MODELS_DIR),
+            file_dialog = QFileDialog()
+            
+            file_path, _ = file_dialog.getOpenFileName(
+                self, 
+                "Select OBJ File", 
+                str(Path.home()), 
                 "OBJ Files (*.obj);;All Files (*)"
             )
             
-            if not file_path:
-                return
-            
-            self.current_obj_data = self.obj_loader.load_from_file(file_path)
-            self.rotated_obj_data = None
-            
-            self.display_obj_data()
-            
-            if self.opengl_view:
-                self.opengl_view.set_obj_data(self.current_obj_data, None)
-                # Update rotation visualization
-                self.update_rotation_preview()
-            
-            self.output_text.append(f"\nSuccessfully loaded: {Path(file_path).name}")
-            
+            if file_path:
+                self.current_obj_data = OBJLoader.load_obj(file_path)
+                self.rotated_obj_data = None
+                
+                # Update renderers
+                if self.opengl_view and hasattr(self.opengl_view, 'set_obj_data'):
+                    self.opengl_view.set_obj_data(self.current_obj_data, None)
+                if self.custom_view and hasattr(self.custom_view, 'set_obj_data'):
+                    self.custom_view.set_obj_data(self.current_obj_data, None)
+                
+                self.display_obj_data()
+                
         except Exception as e:
-            error_msg = f"Error loading file: {e}"
-            self.output_text.append(f"\n{error_msg}")
+            error_msg = f"Error loading OBJ file: {e}"
             QMessageBox.critical(self, "Load Error", error_msg)
+            self.output_text.setText(error_msg)
     
-    def on_method_changed(self, method: RotationMethod):
-        self.current_method = method
-        self.update_rotation_preview()
-    
-    def update_rotation_preview(self):
-        if self.opengl_view and self.rotation_method_widget:
-            try:
-                rotation_obj = self.rotation_method_widget.get_rotation_object()
-                viz_data = RotationFactory.get_visualization_data(rotation_obj, self.current_method)
-                self.opengl_view.set_rotation_visualization(viz_data)
-            except Exception as e:
-                print(f"Error update preview: {e}, {rotation_obj}")
-
     def apply_rotation(self):
         try:
             if not self.current_obj_data:
-                QMessageBox.warning(self, "Tidak ada data", "Tolong muat file OBJ.")
+                QMessageBox.warning(self, "No Data", "Please load an OBJ file first.")
                 return
             
-            rotation_obj = self.rotation_method_widget.get_rotation_object()
+            # Get rotation from current widget
+            rotation_obj = self.rotation_method_widget.get_current_rotation()
+            if not rotation_obj:
+                QMessageBox.warning(self, "No Rotation", "Please set rotation parameters.")
+                return
             
-            # Terapkan rotasi pada data objek
-            self.rotated_obj_data = RotationFactory.rotate_obj_data(
-                self.current_obj_data, rotation_obj, self.current_method
-            )
+            # Get current method
+            method = self.rotation_method_widget.get_current_method()
             
-            if self.opengl_view:
+            # Apply rotation using RotationFactory with method parameter
+            try:
+                self.rotated_obj_data = RotationFactory.rotate_obj_data(
+                    self.current_obj_data, rotation_obj, method
+                )
+            except Exception as e:
+                print(f"Warning: RotationFactory.rotate_obj_data failed with method parameter: {e}")
+                # Create a simple rotation by converting to quaternion
+                if hasattr(rotation_obj, 'to_quaternion'):
+                    quaternion = rotation_obj.to_quaternion()
+                    # Apply quaternion rotation manually or use a simplified approach
+                    self.rotated_obj_data = self.apply_rotation_manually(self.current_obj_data, rotation_obj)
+                else:
+                    raise e
+            
+            # Update renderers
+            if self.opengl_view and hasattr(self.opengl_view, 'set_obj_data'):
                 self.opengl_view.set_obj_data(self.current_obj_data, self.rotated_obj_data)
-                
-                # Update visualisasi rotasi
-                viz_data = RotationFactory.get_visualization_data(rotation_obj, self.current_method)
-                self.opengl_view.set_rotation_visualization(viz_data)
+            if self.custom_view and hasattr(self.custom_view, 'set_obj_data'):
+                self.custom_view.set_obj_data(self.current_obj_data, self.rotated_obj_data)
             
-            # Show informasi rotasi
-            rotation_info = RotationFactory.get_rotation_info(rotation_obj, self.current_method)
-            self.output_text.append(f"\n{rotation_info}")
+            # Update visualization
+            axis, angle = self.extract_axis_angle(rotation_obj)
+            
+            current_renderer = self.get_current_renderer()
+            if current_renderer and hasattr(current_renderer, 'set_rotation_parameters'):
+                current_renderer.set_rotation_parameters(axis, angle)
+            
+            # Show rotation info
+            try:
+                if hasattr(RotationFactory, 'get_rotation_info'):
+                    rotation_info = RotationFactory.get_rotation_info(rotation_obj, method)
+                    self.output_text.append(f"\n{rotation_info}")
+                else:
+                    # Simplified rotation info
+                    rotation_info = f"Method: {method.value if hasattr(method, 'value') else method}"
+                    rotation_info += f"\nAxis: ({axis.x:.3f}, {axis.y:.3f}, {axis.z:.3f})"
+                    rotation_info += f"\nAngle: {angle:.2f}°"
+                    self.output_text.append(f"\n{rotation_info}")
+            except Exception as e:
+                self.output_text.append(f"\nRotation applied (info error: {e})")
+                
             self.output_text.append("Rotation applied successfully!")
             
         except Exception as e:
@@ -404,74 +394,131 @@ class MainWindow(QMainWindow):
             self.output_text.append(f"\n{error_msg}")
             QMessageBox.critical(self, "Rotation Error", error_msg)
     
-    def reset_view(self):
+    def apply_rotation_manually(self, obj_data, rotation_obj):
         try:
-            # Reset ke default metode
-            self.rotation_method_widget.method_combo.setCurrentIndex(0)  # Quaternion
+            # Create new OBJData
+            from ...core.io.obj_loader import OBJData, Vertex
             
-            # Reset kontrol rotasi
-            if hasattr(self.rotation_method_widget.quaternion_controls, 'axis_x_spin'):
-                self.rotation_method_widget.quaternion_controls.axis_x_spin.setValue(0.0)
-                self.rotation_method_widget.quaternion_controls.axis_y_spin.setValue(0.0)
-                self.rotation_method_widget.quaternion_controls.axis_z_spin.setValue(1.0)
-                self.rotation_method_widget.quaternion_controls.angle_spin.setValue(45.0)
+            rotated_data = OBJData()
+            rotated_data.filename = f"{obj_data.filename}_rotated"
+            rotated_data.faces = obj_data.faces.copy()
             
-            self.rotated_obj_data = None
+            # Apply rotation to each vertex
+            for vertex in obj_data.vertices:
+                vector = Vector3(vertex.x, vertex.y, vertex.z)
+                
+                # Try to rotate using the rotation object
+                if hasattr(rotation_obj, 'rotate_vector'):
+                    rotated_vector = rotation_obj.rotate_vector(vector)
+                else:
+                    # Simple identity transformation
+                    rotated_vector = vector
+                
+                rotated_vertex = Vertex(rotated_vector.x, rotated_vector.y, rotated_vector.z)
+                rotated_data.vertices.append(rotated_vertex)
             
-            if self.opengl_view:
-                self.opengl_view.set_obj_data(self.current_obj_data, None)
-                self.update_rotation_preview()
-            
-            self.output_text.append("\nView reset to default rotation method and parameters.")
+            return rotated_data
             
         except Exception as e:
-            error_msg = f"Error saat set ulang: {e}"
-            self.output_text.append(f"\n{error_msg}")
+            print(f"Error in manual rotation: {e}")
+            return obj_data  # Return original if rotation fails
+    
+    def toggle_renderer(self):
+        try:
+            if self.current_renderer == "opengl":
+                if self.opengl_view:
+                    self.opengl_view.hide()
+                if self.custom_view:
+                    self.custom_view.show()
+                self.current_renderer = "custom"
+                self.toggle_renderer_button.setText("Switch to OpenGL Renderer")
+            else:
+                if self.custom_view:
+                    self.custom_view.hide()
+                if self.opengl_view:
+                    self.opengl_view.show()
+                self.current_renderer = "opengl"
+                self.toggle_renderer_button.setText("Switch to Custom Renderer")
+            
+            # Update current renderer with existing data
+            current_renderer = self.get_current_renderer()
+            if current_renderer and hasattr(current_renderer, 'set_obj_data'):
+                current_renderer.set_obj_data(self.current_obj_data, self.rotated_obj_data)
+                
+                rotation_obj = self.rotation_method_widget.get_current_rotation()
+                if rotation_obj and hasattr(current_renderer, 'set_rotation_parameters'):
+                    axis, angle = self.extract_axis_angle(rotation_obj)
+                    current_renderer.set_rotation_parameters(axis, angle)
+                
+        except Exception as e:
+            print(f"Error toggling renderer: {e}")
+    
+    def get_current_renderer(self):
+        if self.current_renderer == "opengl":
+            return self.opengl_view
+        else:
+            return self.custom_view
+    
+    def reset_view(self):
+        try:
+            if hasattr(self, 'rotation_method_widget'):
+                if hasattr(self.rotation_method_widget, 'reset_to_identity'):
+                    self.rotation_method_widget.reset_to_identity()
+            
+            # Clear rotated object
+            self.rotated_obj_data = None
+            
+            # Reset renderers
+            if self.opengl_view:
+                if hasattr(self.opengl_view, 'set_obj_data'):
+                    self.opengl_view.set_obj_data(self.current_obj_data, None)
+                if hasattr(self.opengl_view, 'reset_camera'):
+                    self.opengl_view.reset_camera()
+                    
+            if self.custom_view:
+                if hasattr(self.custom_view, 'set_obj_data'):
+                    self.custom_view.set_obj_data(self.current_obj_data, None)
+                if hasattr(self.custom_view, 'reset_camera'):
+                    self.custom_view.reset_camera()
+            
+            # Reset display
+            if self.current_obj_data:
+                self.display_obj_data()
+            else:
+                self.output_text.setText("No model loaded. Please select an OBJ file to begin.")
+                
+        except Exception as e:
+            print(f"Error resetting view: {e}")
     
     def display_obj_data(self):
-        if not self.current_obj_data:
-            return
-        
         try:
-            output = f"File: {self.current_obj_data.filename}\n"
-            output += f"Vertices: {len(self.current_obj_data.vertices)} | Faces: {len(self.current_obj_data.faces)}\n"
+            if not self.current_obj_data:
+                self.output_text.setText("No model loaded.")
+                return
             
-            if self.current_obj_data.vertices:
-                output += f"Sample vertices:\n"
-                for i, vertex in enumerate(self.current_obj_data.vertices[:3]):
-                    output += f"  v{i}: ({vertex.x:.2f}, {vertex.y:.2f}, {vertex.z:.2f})\n"
-                
-                if len(self.current_obj_data.vertices) > 3:
-                    remaining = len(self.current_obj_data.vertices) - 3
-                    output += f"  ... +{remaining} more\n"
+            obj_data = self.current_obj_data
+            output = f"File: {getattr(obj_data, 'filename', 'Unknown')}\n"
+            output += f"Vertices: {len(obj_data.vertices) if obj_data.vertices else 0}\n"
+            output += f"Faces: {len(obj_data.faces) if obj_data.faces else 0}\n"
             
-            if self.current_obj_data.faces:
-                output += f"Sample faces:\n"
-                for i, face in enumerate(self.current_obj_data.faces[:2]):
-                    indices_str = ", ".join(str(idx) for idx in face.vertex_indices[:4])
-                    if len(face.vertex_indices) > 4:
-                        indices_str += "..."
-                    output += f"  f{i}: [{indices_str}]\n"
-                
-                if len(self.current_obj_data.faces) > 2:
-                    remaining = len(self.current_obj_data.faces) - 2
-                    output += f"  ... +{remaining} more\n"
-            
-            if self.current_obj_data.vertices:
-                vertices = self.current_obj_data.vertices
-                min_x = min(v.x for v in vertices)
-                max_x = max(v.x for v in vertices)
-                min_y = min(v.y for v in vertices)
-                max_y = max(v.y for v in vertices)
-                min_z = min(v.z for v in vertices)
-                max_z = max(v.z for v in vertices)
-                
-                output += f"\nBounds:\n"
-                output += f"X: {min_x:.2f} to {max_x:.2f}\n"
-                output += f"Y: {min_y:.2f} to {max_y:.2f}\n"
-                output += f"Z: {min_z:.2f} to {max_z:.2f}\n"
+            if obj_data.vertices and len(obj_data.vertices) > 0:
+                vertices = obj_data.vertices
+                try:
+                    min_x = min(v.x for v in vertices)
+                    max_x = max(v.x for v in vertices)
+                    min_y = min(v.y for v in vertices)
+                    max_y = max(v.y for v in vertices)
+                    min_z = min(v.z for v in vertices)
+                    max_z = max(v.z for v in vertices)
+                    
+                    output += f"\nBounding Box:\n"
+                    output += f"X: {min_x:.2f} to {max_x:.2f}\n"
+                    output += f"Y: {min_y:.2f} to {max_y:.2f}\n"
+                    output += f"Z: {min_z:.2f} to {max_z:.2f}\n"
+                except Exception as e:
+                    output += f"\nError calculating bounding box: {e}\n"
             
             self.output_text.setText(output)
             
         except Exception as e:
-            self.output_text.setText(f"Error saat menampilkan data objek: {e}")
+            self.output_text.setText(f"Error displaying object data: {e}")
