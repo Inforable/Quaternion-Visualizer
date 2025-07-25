@@ -1,6 +1,6 @@
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QMouseEvent, QWheelEvent, QPainter, QFont, QColor
 
 import OpenGL.GL as gl
 import OpenGL.GLU as glu
@@ -31,16 +31,23 @@ class OpenGLView(QOpenGLWidget):
         # Mouse interaction
         self.last_mouse_pos = None
         
+        # Cached matrices untuk stable labels
+        self.cached_modelview = None
+        self.cached_projection = None
+        self.cached_viewport = None
+        
         # Animation timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update)
-        self.timer.start(16)  # 60 FPS
+        self.timer.start(33)  # 30 FPS untuk stability
         
-        # Enable mouse tracking
-        self.setMouseTracking(True)
+        # Text rendering setup
+        self.label_font = QFont("Arial", 14, QFont.Weight.Bold)
+        self.degree_font = QFont("Arial", 16, QFont.Weight.Bold)
         
-        # Multiple rotation methods visualization
-        self.viz_data = None
+        # Label caching untuk prevent flickering
+        self.label_cache = {}
+        self.cache_counter = 0
     
     def set_obj_data(self, original_obj: OBJData, rotated_obj: OBJData = None):
         self.original_obj = original_obj
@@ -48,561 +55,246 @@ class OpenGLView(QOpenGLWidget):
         self.update()
 
     def set_rotation_parameters(self, axis: Vector3, angle: float):
-        if axis.magnitude() > 0:
+        if axis and axis.magnitude() > 0:
             self.rotation_axis = axis.normalize()
         else:
             self.rotation_axis = Vector3(0, 0, 1)
         self.rotation_angle = angle
         self.update()
     
-    def set_rotation_visualization(self, viz_data: dict):
-        self.viz_data = viz_data
+    def reset_camera(self):
+        self.camera_distance = 8.0
+        self.camera_rotation_x = 20.0
+        self.camera_rotation_y = 45.0
         self.update()
     
     def initializeGL(self):
-        # Clear error state first
-        while gl.glGetError() != gl.GL_NO_ERROR:
-            pass
-        
         gl.glClearColor(0.1, 0.1, 0.1, 1.0)
-        
         gl.glEnable(gl.GL_DEPTH_TEST)
-        gl.glDepthFunc(gl.GL_LESS)
-        
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
-        
         gl.glEnable(gl.GL_LINE_SMOOTH)
-        gl.glHint(gl.GL_LINE_SMOOTH_HINT, gl.GL_NICEST)
-        
         gl.glEnable(gl.GL_LIGHTING)
         gl.glEnable(gl.GL_LIGHT0)
         
+        # Setup lighting
         light_pos = [5.0, 5.0, 5.0, 1.0]
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_POSITION, light_pos)
-        
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_AMBIENT, [0.2, 0.2, 0.2, 1.0])
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_DIFFUSE, [0.8, 0.8, 0.8, 1.0])
-        gl.glLightfv(gl.GL_LIGHT0, gl.GL_SPECULAR, [1.0, 1.0, 1.0, 1.0])
-
+        
         gl.glEnable(gl.GL_COLOR_MATERIAL)
-        gl.glColorMaterial(gl.GL_FRONT, gl.GL_AMBIENT_AND_DIFFUSE)
     
     def resizeGL(self, width, height):
         if height == 0:
             height = 1
         
-        aspect_ratio = width / height
-        
         gl.glViewport(0, 0, width, height)
         gl.glMatrixMode(gl.GL_PROJECTION)
         gl.glLoadIdentity()
-        
-        glu.gluPerspective(45.0, aspect_ratio, 0.1, 100.0)
-        
+        glu.gluPerspective(45.0, width / height, 0.1, 100.0)
         gl.glMatrixMode(gl.GL_MODELVIEW)
+        
+        self.label_cache.clear()
     
     def paintGL(self):
         try:
-            # Clear any previous errors
-            while gl.glGetError() != gl.GL_NO_ERROR:
-                pass
-            
             gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
-            
-            # Reset modelview matrix
             gl.glLoadIdentity()
             
             # Setup camera
-            glu.gluLookAt(
-                self.camera_distance * math.cos(math.radians(self.camera_rotation_y)) * math.cos(math.radians(self.camera_rotation_x)),
-                self.camera_distance * math.sin(math.radians(self.camera_rotation_x)),
-                self.camera_distance * math.sin(math.radians(self.camera_rotation_y)) * math.cos(math.radians(self.camera_rotation_x)),
-                0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0
-            )
+            self.setup_camera()
+            
+            # Cache matrices setelah camera setup
+            self.cache_matrices()
             
             # Draw coordinate axes
             self.draw_coordinate_axes()
             
-            # Draw method-specific visualization
-            self.draw_method_specific_visualization()
+            # Draw rotation visualization
+            self.draw_rotation_visualization()
             
             # Draw objects
+            self.draw_objects()
+                
+        except Exception as e:
+            print(f"OpenGL Error: {e}")
+    
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        # Only draw labels if matrices are cached
+        if self.cached_modelview is not None:
+            self.draw_2d_labels()
+    
+    def cache_matrices(self):
+        try:
+            self.cached_modelview = gl.glGetDoublev(gl.GL_MODELVIEW_MATRIX)
+            self.cached_projection = gl.glGetDoublev(gl.GL_PROJECTION_MATRIX)
+            self.cached_viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
+        except Exception as e:
+            print(f"Error caching matrices: {e}")
+    
+    def setup_camera(self):
+        glu.gluLookAt(
+            self.camera_distance * math.cos(math.radians(self.camera_rotation_y)) * math.cos(math.radians(self.camera_rotation_x)),
+            self.camera_distance * math.sin(math.radians(self.camera_rotation_x)),
+            self.camera_distance * math.sin(math.radians(self.camera_rotation_y)) * math.cos(math.radians(self.camera_rotation_x)),
+            0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        )
+    
+    def draw_coordinate_axes(self):
+        try:
+            gl.glDisable(gl.GL_LIGHTING)
+            gl.glLineWidth(3.0)
+            axis_length = 4.0
+
+            # Draw axes
+            gl.glBegin(gl.GL_LINES)
+
+            # X axis
+            gl.glColor3f(1.0, 0.0, 0.0)
+            gl.glVertex3f(0.0, 0.0, 0.0)
+            gl.glVertex3f(axis_length, 0.0, 0.0)
+            
+            # Y axis
+            gl.glColor3f(0.0, 1.0, 0.0)
+            gl.glVertex3f(0.0, 0.0, 0.0)
+            gl.glVertex3f(0.0, axis_length, 0.0)
+            
+            # Z axix
+            gl.glColor3f(0.0, 0.0, 1.0)
+            gl.glVertex3f(0.0, 0.0, 0.0)
+            gl.glVertex3f(0.0, 0.0, axis_length)
+            gl.glEnd()
+
+            arrow_size = 0.3
+            self.draw_arrow_head(Vector3(axis_length, 0, 0), Vector3(1, 0, 0), arrow_size, (1.0, 0.0, 0.0))
+            self.draw_arrow_head(Vector3(0, axis_length, 0), Vector3(0, 1, 0), arrow_size, (0.0, 1.0, 0.0))
+            self.draw_arrow_head(Vector3(0, 0, axis_length), Vector3(0, 0, 1), arrow_size, (0.0, 0.0, 1.0))
+            
+            gl.glEnable(gl.GL_LIGHTING)
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing axes: {e}")
+    
+    def draw_arrow_head(self, position: Vector3, direction: Vector3, size: float, color: tuple):
+        try:
+            gl.glColor3f(*color)
+            gl.glLineWidth(3.0)
+            gl.glPushMatrix()
+            gl.glTranslatef(position.x, position.y, position.z)
+            
+            # Simple arrow head using lines
+            gl.glBegin(gl.GL_LINES)
+            back_x = -direction.x * size * 2
+            back_y = -direction.y * size * 2
+            back_z = -direction.z * size * 2
+            
+            # Create perpendicular vectors for arrow head
+            if abs(direction.z) < 0.9:
+                perp1 = Vector3(0, 0, 1).cross(direction).normalize()
+            else:
+                perp1 = Vector3(1, 0, 0).cross(direction).normalize()
+            perp2 = direction.cross(perp1).normalize()
+            
+            # Draw arrow lines
+            gl.glVertex3f(0, 0, 0)
+            gl.glVertex3f(back_x + perp1.x * size, back_y + perp1.y * size, back_z + perp1.z * size)
+            gl.glVertex3f(0, 0, 0)
+            gl.glVertex3f(back_x - perp1.x * size, back_y - perp1.y * size, back_z - perp1.z * size)
+            gl.glVertex3f(0, 0, 0)
+            gl.glVertex3f(back_x + perp2.x * size, back_y + perp2.y * size, back_z + perp2.z * size)
+            gl.glVertex3f(0, 0, 0)
+            gl.glVertex3f(back_x - perp2.x * size, back_y - perp2.y * size, back_z - perp2.z * size)
+            gl.glEnd()
+            
+            gl.glPopMatrix()
+            gl.glLineWidth(1.0)
+        except Exception as e:
+            print(f"Error drawing arrow head: {e}")
+    
+    def draw_rotation_visualization(self):
+        if abs(self.rotation_angle) < 0.1:
+            return
+            
+        try:
+            gl.glDisable(gl.GL_LIGHTING)
+
+            # Draw rotation axis
+            axis = self.rotation_axis.normalize()
+            axis_length = 5.0
+            
+            gl.glColor3f(1.0, 1.0, 0.0)
+            gl.glLineWidth(5.0)
+            gl.glBegin(gl.GL_LINES)
+            gl.glVertex3f(-axis.x * axis_length, -axis.y * axis_length, -axis.z * axis_length)
+            gl.glVertex3f(axis.x * axis_length, axis.y * axis_length, axis.z * axis_length)
+            gl.glEnd()
+            
+            # Draw angle arc
+            self.draw_angle_arc()
+            
+            gl.glEnable(gl.GL_LIGHTING)
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing rotation: {e}")
+    
+    def draw_angle_arc(self):
+        try:
+            axis = self.rotation_axis.normalize()
+            radius = 2.5
+
+            # Create perpendicular vectors
+            if abs(axis.z) < 0.9:
+                u = Vector3(0, 0, 1).cross(axis).normalize()
+            else:
+                u = Vector3(1, 0, 0).cross(axis).normalize()
+            v = axis.cross(u).normalize()
+            
+            # Draw arc
+            gl.glColor3f(1.0, 0.6, 0.0)
+            gl.glLineWidth(4.0)
+
+            steps = max(16, int(abs(self.rotation_angle) / 2))
+            gl.glBegin(gl.GL_LINE_STRIP)
+            for i in range(steps + 1):
+                angle_progress = (i / steps) * math.radians(abs(self.rotation_angle))
+                if self.rotation_angle < 0:
+                    angle_progress = -angle_progress
+                
+                cos_a = math.cos(angle_progress)
+                sin_a = math.sin(angle_progress)
+                
+                point_x = (u.x * cos_a + v.x * sin_a) * radius
+                point_y = (u.y * cos_a + v.y * sin_a) * radius
+                point_z = (u.z * cos_a + v.z * sin_a) * radius
+                
+                gl.glVertex3f(point_x, point_y, point_z)
+            gl.glEnd()
+            
+            gl.glLineWidth(1.0)
+            
+        except Exception as e:
+            print(f"Error drawing angle arc: {e}")
+    
+    def draw_objects(self):
+        try:
             if self.original_obj:
                 gl.glPushMatrix()
-                gl.glTranslatef(-2.0, 0.0, 0.0)
+                gl.glTranslatef(-3.0, 0.0, 0.0)
                 self.draw_obj(self.original_obj, color=(0.3, 0.5, 1.0))
                 gl.glPopMatrix()
             
             if self.rotated_obj:
                 gl.glPushMatrix()
-                gl.glTranslatef(2.0, 0.0, 0.0)
+                gl.glTranslatef(3.0, 0.0, 0.0)
                 self.draw_obj(self.rotated_obj, color=(1.0, 0.3, 0.3))
                 gl.glPopMatrix()
-            
         except Exception as e:
-            print(f"OpenGL Error in paintGL: {e}")
-    
-    def draw_method_specific_visualization(self):
-        if not self.viz_data:
-            # Fallback to single axis visualization
-            self.draw_rotation_axis()
-            self.draw_angle_visualization()
-            return
-        
-        method = self.viz_data.get('method')
-        axes = self.viz_data.get('axes', [])
-        angles = self.viz_data.get('angles', [])
-        colors = self.viz_data.get('colors', [])
-        
-        if method == RotationMethod.QUATERNION:
-            self.draw_quaternion_visualization(axes, angles, colors)
-        elif method == RotationMethod.EULER_ANGLE:
-            self.draw_euler_visualization(axes, angles, colors)
-        elif method == RotationMethod.TAIT_BRYAN:
-            self.draw_tait_bryan_visualization(axes, angles, colors)
-        elif method == RotationMethod.EXPONENTIAL_MAP:
-            self.draw_exponential_visualization(axes, angles, colors)
-    
-    def draw_quaternion_visualization(self, axes, angles, colors):
-        if axes and len(axes) > 0:
-            self.rotation_axis = axes[0]
-            self.rotation_angle = angles[0] if angles else 0.0
-            self.draw_rotation_axis()
-            self.draw_angle_visualization()
-    
-    def draw_euler_visualization(self, axes, angles, colors):
-        for i, (axis, angle, color) in enumerate(zip(axes, angles, colors)):
-            if abs(angle) > 0.1:
-                self.draw_rotation_axis_with_style(axis, angle, color, f"Rotation {i+1}", offset=i*0.2)
-    
-    def draw_tait_bryan_visualization(self, axes, angles, colors):
-        labels = ["Yaw", "Pitch", "Roll"]
-        for i, (axis, angle, color) in enumerate(zip(axes, angles, colors)):
-            if abs(angle) > 0.1:
-                label = labels[i] if i < len(labels) else f"Axis {i+1}"
-                self.draw_rotation_axis_with_style(axis, angle, color, label, offset=i*0.3)
-    
-    def draw_exponential_visualization(self, axes, angles, colors):
-        if axes and len(axes) > 0:
-            axis = axes[0]
-            angle = angles[0] if angles else 0.0
-            color = colors[0] if colors else (0.5, 1.0, 0.5)
-            self.draw_exponential_vector(axis, angle, color)
-    
-    def draw_rotation_axis_with_style(self, axis, angle, color, label, offset=0.0):
-        try:
-            gl.glDisable(gl.GL_LIGHTING)
-            gl.glColor3f(*color)
-            gl.glLineWidth(3.0)
-            
-            axis_norm = axis.normalize() if axis.magnitude() > 0 else Vector3(0, 0, 1)
-            axis_length = 2.5 + offset
-            
-            # Draw axis line with offset
-            gl.glBegin(gl.GL_LINES)
-            try:
-                start_pos = axis_norm * (-axis_length)
-                end_pos = axis_norm * axis_length
-                
-                gl.glVertex3f(start_pos.x, start_pos.y, start_pos.z)
-                gl.glVertex3f(end_pos.x, end_pos.y, end_pos.z)
-            finally:
-                gl.glEnd()
-            
-            # Draw simple arrow head
-            self.draw_colored_arrow_head(end_pos, axis_norm, 0.3, color)
-            
-            # Draw angle arc if significant
-            if abs(angle) > 1.0:
-                self.draw_colored_angle_arc(axis_norm, angle, color, radius=1.0 + offset*0.5)
-            
-            gl.glEnable(gl.GL_LIGHTING)
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing rotation axis with style: {e}")
-    
-    def draw_exponential_vector(self, axis, angle, color):
-        try:
-            gl.glDisable(gl.GL_LIGHTING)
-            gl.glColor3f(*color)
-            gl.glLineWidth(4.0)
-            
-            # Calculate rotation vector (omega)
-            if axis.magnitude() > 0:
-                angle_rad = math.radians(angle)
-                omega = axis.normalize() * angle_rad
-                
-                # Draw vector from origin
-                gl.glBegin(gl.GL_LINES)
-                try:
-                    gl.glVertex3f(0, 0, 0)
-                    gl.glVertex3f(omega.x * 2, omega.y * 2, omega.z * 2)
-                finally:
-                    gl.glEnd()
-                
-                # Draw magnitude indicator
-                magnitude = omega.magnitude()
-                if magnitude > 0.1:
-                    self.draw_magnitude_indicator(omega, magnitude, color)
-            
-            gl.glEnable(gl.GL_LIGHTING)
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing exponential vector: {e}")
-    
-    def draw_colored_arrow_head(self, position, direction, size, color):
-        try:
-            gl.glColor3f(*color)
-            gl.glLineWidth(2.0)
-            
-            gl.glPushMatrix()
-            gl.glTranslatef(position.x, position.y, position.z)
-            
-            if abs(direction.z) < 0.9:
-                perp1 = Vector3(0, 0, 1).cross(direction).normalize() * size
-            else:
-                perp1 = Vector3(1, 0, 0).cross(direction).normalize() * size
-            
-            perp2 = direction.cross(perp1).normalize() * size
-            back = direction * (-size)
-            
-            gl.glBegin(gl.GL_LINES)
-            try:
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back.x + perp1.x, back.y + perp1.y, back.z + perp1.z)
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back.x - perp1.x, back.y - perp1.y, back.z - perp1.z)
-            finally:
-                gl.glEnd()
-            
-            gl.glPopMatrix()
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing colored arrow head: {e}")
-    
-    def draw_colored_angle_arc(self, axis, angle, color, radius=1.5):
-        try:
-            gl.glColor3f(*color)
-            gl.glLineWidth(2.0)
-            
-            if abs(axis.z) < 0.9:
-                u = Vector3(0, 0, 1).cross(axis).normalize()
-            else:
-                u = Vector3(1, 0, 0).cross(axis).normalize()
-            v = axis.cross(u).normalize()
-            
-            steps = max(8, int(abs(angle) / 5))
-            gl.glBegin(gl.GL_LINE_STRIP)
-            try:
-                for i in range(steps + 1):
-                    progress = (i / steps) * math.radians(abs(angle))
-                    if angle < 0:
-                        progress = -progress
-                    
-                    point = (u * math.cos(progress) + v * math.sin(progress)) * radius
-                    gl.glVertex3f(point.x, point.y, point.z)
-            finally:
-                gl.glEnd()
-            
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing colored angle arc: {e}")
-    
-    def draw_magnitude_indicator(self, omega, magnitude, color):
-        try:
-            gl.glPointSize(max(6.0, min(20.0, magnitude * 10)))
-            gl.glBegin(gl.GL_POINTS)
-            try:
-                gl.glColor3f(*color)
-                gl.glVertex3f(omega.x * 2, omega.y * 2, omega.z * 2)
-            finally:
-                gl.glEnd()
-            
-            gl.glPointSize(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing magnitude indicator: {e}")
-    
-    def draw_coordinate_axes(self):
-        try:
-            gl.glDisable(gl.GL_LIGHTING)
-            gl.glLineWidth(2.0)
-
-            axis_length = 2.0
-
-            # Draw main axes lines
-            gl.glBegin(gl.GL_LINES)
-            try:
-                # X axis (red)
-                gl.glColor3f(1.0, 0.0, 0.0)
-                gl.glVertex3f(0.0, 0.0, 0.0)
-                gl.glVertex3f(axis_length, 0.0, 0.0)
-                
-                # Y axis (green)  
-                gl.glColor3f(0.0, 1.0, 0.0)
-                gl.glVertex3f(0.0, 0.0, 0.0)
-                gl.glVertex3f(0.0, axis_length, 0.0)
-                
-                # Z axis (blue)
-                gl.glColor3f(0.0, 0.0, 1.0)
-                gl.glVertex3f(0.0, 0.0, 0.0)
-                gl.glVertex3f(0.0, 0.0, axis_length)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd in finally block
-            
-            # Draw axis labels as points
-            gl.glPointSize(12.0)
-            gl.glBegin(gl.GL_POINTS)
-            try:
-                # X label
-                gl.glColor3f(1.0, 0.0, 0.0)
-                gl.glVertex3f(axis_length + 0.2, 0.0, 0.0)
-                
-                # Y label
-                gl.glColor3f(0.0, 1.0, 0.0)
-                gl.glVertex3f(0.0, axis_length + 0.2, 0.0)
-                
-                # Z label
-                gl.glColor3f(0.0, 0.0, 1.0)
-                gl.glVertex3f(0.0, 0.0, axis_length + 0.2)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd in finally block
-
-            # Draw arrow heads
-            self.draw_axis_arrow_head(Vector3(axis_length, 0, 0), Vector3(1, 0, 0), 0.2, (1.0, 0.0, 0.0))
-            self.draw_axis_arrow_head(Vector3(0, axis_length, 0), Vector3(0, 1, 0), 0.2, (0.0, 1.0, 0.0))
-            self.draw_axis_arrow_head(Vector3(0, 0, axis_length), Vector3(0, 0, 1), 0.2, (0.0, 0.0, 1.0))
-            
-            gl.glEnable(gl.GL_LIGHTING)
-            gl.glLineWidth(1.0)
-            gl.glPointSize(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing coordinate axes: {e}")
-    
-    def draw_axis_arrow_head(self, position: Vector3, direction: Vector3, size: float, color: tuple):
-        try:
-            gl.glColor3f(*color)
-            gl.glLineWidth(2.0)
-            
-            gl.glPushMatrix()
-            gl.glTranslatef(position.x, position.y, position.z)
-            
-            # Create perpendicular vectors
-            if abs(direction.z) < 0.9:
-                perpendicular1 = Vector3(0, 0, 1).cross(direction).normalize() * size
-            else:
-                perpendicular1 = Vector3(1, 0, 0).cross(direction).normalize() * size
-            
-            perpendicular2 = direction.cross(perpendicular1).normalize() * size
-            back_point = direction * (-size * 2)
-            
-            # Draw arrow head lines safely
-            gl.glBegin(gl.GL_LINES)
-            try:
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x + perpendicular1.x, back_point.y + perpendicular1.y, back_point.z + perpendicular1.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x - perpendicular1.x, back_point.y - perpendicular1.y, back_point.z - perpendicular1.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x + perpendicular2.x, back_point.y + perpendicular2.y, back_point.z + perpendicular2.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x - perpendicular2.x, back_point.y - perpendicular2.y, back_point.z - perpendicular2.z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-                
-            gl.glPopMatrix()
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing arrow head: {e}")
-    
-    def draw_rotation_axis(self):
-        if self.rotation_axis.magnitude() == 0:
-            return
-        
-        try:
-            gl.glDisable(gl.GL_LIGHTING)
-            gl.glColor3f(1.0, 1.0, 0.0)
-            gl.glLineWidth(4.0)
-            
-            axis = self.rotation_axis.normalize()
-            axis_length = 3.5
-            
-            # Draw rotation axis line
-            gl.glBegin(gl.GL_LINES)
-            try:
-                gl.glVertex3f(-axis.x * axis_length, -axis.y * axis_length, -axis.z * axis_length)
-                gl.glVertex3f(axis.x * axis_length, axis.y * axis_length, axis.z * axis_length)
-            finally:
-                gl.glEnd()
-            
-            # Draw arrow heads
-            self.draw_rotation_arrow_head(
-                Vector3(axis.x * axis_length, axis.y * axis_length, axis.z * axis_length), 
-                axis, 0.4
-            )
-            self.draw_rotation_arrow_head(
-                Vector3(-axis.x * axis_length, -axis.y * axis_length, -axis.z * axis_length), 
-                axis * -1, 0.4
-            )
-            
-            # Draw points at axis ends
-            gl.glPointSize(8.0)
-            gl.glBegin(gl.GL_POINTS)
-            try:
-                gl.glColor3f(1.0, 1.0, 1.0)
-                gl.glVertex3f(axis.x * (axis_length + 0.5), axis.y * (axis_length + 0.5), axis.z * (axis_length + 0.5))
-            finally:
-                gl.glEnd()
-            
-            gl.glEnable(gl.GL_LIGHTING)
-            gl.glLineWidth(1.0)
-            gl.glPointSize(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing rotation axis: {e}")
-    
-    def draw_rotation_arrow_head(self, position: Vector3, direction: Vector3, size: float):
-        try:
-            gl.glColor3f(1.0, 1.0, 0.0)
-            gl.glLineWidth(3.0)
-            
-            gl.glPushMatrix()
-            gl.glTranslatef(position.x, position.y, position.z)
-            
-            # Create perpendicular vectors
-            if abs(direction.z) < 0.9:
-                perpendicular1 = Vector3(0, 0, 1).cross(direction).normalize() * size
-            else:
-                perpendicular1 = Vector3(1, 0, 0).cross(direction).normalize() * size
-            
-            perpendicular2 = direction.cross(perpendicular1).normalize() * size
-            back_point = direction * (-size * 1.5)
-            
-            # Draw arrow head safely
-            gl.glBegin(gl.GL_LINES)
-            try:
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x + perpendicular1.x, back_point.y + perpendicular1.y, back_point.z + perpendicular1.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x - perpendicular1.x, back_point.y - perpendicular1.y, back_point.z - perpendicular1.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x + perpendicular2.x, back_point.y + perpendicular2.y, back_point.z + perpendicular2.z)
-                
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(back_point.x - perpendicular2.x, back_point.y - perpendicular2.y, back_point.z - perpendicular2.z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-                
-            gl.glPopMatrix()
-            gl.glLineWidth(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing rotation arrow head: {e}")
-    
-    def draw_angle_visualization(self):
-        if abs(self.rotation_angle) < 0.1 or self.rotation_axis.magnitude() == 0:
-            return
-        
-        try:
-            gl.glDisable(gl.GL_LIGHTING)
-            
-            axis = self.rotation_axis.normalize()
-            radius = 1.8
-            
-            # Create perpendicular vectors
-            if abs(axis.z) < 0.9:
-                u = Vector3(0, 0, 1).cross(axis).normalize()
-            else:
-                u = Vector3(1, 0, 0).cross(axis).normalize()
-            
-            v = axis.cross(u).normalize()
-            
-            # Draw arc safely
-            gl.glColor3f(1.0, 0.6, 0.0)
-            gl.glLineWidth(3.0)
-            
-            steps = max(12, int(abs(self.rotation_angle) / 3))
-            gl.glBegin(gl.GL_LINE_STRIP)
-            try:
-                for i in range(steps + 1):
-                    angle_progress = (i / steps) * math.radians(abs(self.rotation_angle))
-                    if self.rotation_angle < 0:
-                        angle_progress = -angle_progress
-                    
-                    cos_a = math.cos(angle_progress)
-                    sin_a = math.sin(angle_progress)
-                    
-                    point = (u * cos_a + v * sin_a) * radius
-                    gl.glVertex3f(point.x, point.y, point.z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-            
-            # Draw radius lines safely
-            gl.glColor3f(0.8, 0.4, 0.0)
-            gl.glLineWidth(2.0)
-            gl.glBegin(gl.GL_LINES)
-            try:
-                # Start line
-                start_point = u * radius
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(start_point.x, start_point.y, start_point.z)
-                
-                # End line
-                end_angle = math.radians(self.rotation_angle)
-                cos_end = math.cos(end_angle)
-                sin_end = math.sin(end_angle)
-                end_point = (u * cos_end + v * sin_end) * radius
-                gl.glVertex3f(0, 0, 0)
-                gl.glVertex3f(end_point.x, end_point.y, end_point.z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-            
-            # Draw points safely
-            gl.glPointSize(8.0)
-            gl.glBegin(gl.GL_POINTS)
-            try:
-                # Start point (green)
-                start_point = u * radius
-                gl.glColor3f(0.0, 1.0, 0.0)
-                gl.glVertex3f(start_point.x, start_point.y, start_point.z)
-                
-                # End point (red)
-                end_angle = math.radians(self.rotation_angle)
-                cos_end = math.cos(end_angle)
-                sin_end = math.sin(end_angle)
-                end_point = (u * cos_end + v * sin_end) * radius
-                gl.glColor3f(1.0, 0.0, 0.0)
-                gl.glVertex3f(end_point.x, end_point.y, end_point.z)
-                
-                # Mid point (white)
-                mid_angle = math.radians(self.rotation_angle / 2)
-                cos_mid = math.cos(mid_angle)
-                sin_mid = math.sin(mid_angle)
-                mid_point = (u * cos_mid + v * sin_mid) * (radius * 1.3)
-                gl.glColor3f(1.0, 1.0, 1.0)
-                gl.glVertex3f(mid_point.x, mid_point.y, mid_point.z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-
-            gl.glEnable(gl.GL_LIGHTING)
-            gl.glLineWidth(1.0)
-            gl.glPointSize(1.0)
-            
-        except Exception as e:
-            print(f"Error drawing angle visualization: {e}")
+            print(f"Error drawing objects: {e}")
     
     def draw_obj(self, obj_data: OBJData, color=(1.0, 1.0, 1.0)):
         if not obj_data or not obj_data.vertices or not obj_data.faces:
@@ -611,31 +303,18 @@ class OpenGLView(QOpenGLWidget):
         try:
             # Set material
             gl.glMaterialfv(gl.GL_FRONT, gl.GL_AMBIENT_AND_DIFFUSE, [*color, 1.0])
-            gl.glMaterialfv(gl.GL_FRONT, gl.GL_SPECULAR, [0.5, 0.5, 0.5, 1.0])
-            gl.glMaterialf(gl.GL_FRONT, gl.GL_SHININESS, 32.0)
-
-            normals = self.calculate_face_normals(obj_data)
             
-            # Draw faces safely
-            gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
-            for i, face in enumerate(obj_data.faces):
+            # Draw faces
+            for face in obj_data.faces:
                 if len(face.vertex_indices) >= 3:
                     gl.glBegin(gl.GL_POLYGON)
-                    try:
-                        if i < len(normals):
-                            normal = normals[i]
-                            gl.glNormal3f(normal.x, normal.y, normal.z)
-                        else:
-                            gl.glNormal3f(0.0, 0.0, 1.0)
-                        
-                        for vertex_index in face.vertex_indices:
-                            if 0 <= vertex_index < len(obj_data.vertices):
-                                vertex = obj_data.vertices[vertex_index]
-                                gl.glVertex3f(vertex.x, vertex.y, vertex.z)
-                    finally:
-                        gl.glEnd()  # ALWAYS call glEnd
-
-            # Draw wireframe safely
+                    for vertex_index in face.vertex_indices:
+                        if 0 <= vertex_index < len(obj_data.vertices):
+                            vertex = obj_data.vertices[vertex_index]
+                            gl.glVertex3f(vertex.x, vertex.y, vertex.z)
+                    gl.glEnd()
+            
+            # Draw wireframe
             gl.glDisable(gl.GL_LIGHTING)
             gl.glColor3f(*[c * 0.8 for c in color])
             gl.glLineWidth(1.5)
@@ -644,30 +323,12 @@ class OpenGLView(QOpenGLWidget):
             for face in obj_data.faces:
                 if len(face.vertex_indices) >= 3:
                     gl.glBegin(gl.GL_POLYGON)
-                    try:
-                        for vertex_index in face.vertex_indices:
-                            if 0 <= vertex_index < len(obj_data.vertices):
-                                vertex = obj_data.vertices[vertex_index]
-                                gl.glVertex3f(vertex.x, vertex.y, vertex.z)
-                    finally:
-                        gl.glEnd()  # ALWAYS call glEnd
+                    for vertex_index in face.vertex_indices:
+                        if 0 <= vertex_index < len(obj_data.vertices):
+                            vertex = obj_data.vertices[vertex_index]
+                            gl.glVertex3f(vertex.x, vertex.y, vertex.z)
+                    gl.glEnd()
             
-            # Draw label point safely
-            gl.glPointSize(10.0)
-            gl.glBegin(gl.GL_POINTS)
-            try:
-                gl.glColor3f(1.0, 1.0, 1.0)
-                
-                if obj_data.vertices:
-                    center_x = sum(v.x for v in obj_data.vertices) / len(obj_data.vertices)
-                    center_y = sum(v.y for v in obj_data.vertices) / len(obj_data.vertices)
-                    center_z = sum(v.z for v in obj_data.vertices) / len(obj_data.vertices)
-                    
-                    gl.glVertex3f(center_x, center_y + 2.0, center_z)
-            finally:
-                gl.glEnd()  # ALWAYS call glEnd
-            
-            gl.glPointSize(1.0)
             gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_FILL)
             gl.glEnable(gl.GL_LIGHTING)
             gl.glLineWidth(1.0)
@@ -675,45 +336,161 @@ class OpenGLView(QOpenGLWidget):
         except Exception as e:
             print(f"Error drawing object: {e}")
     
-    def calculate_face_normals(self, obj_data: OBJData) -> list:
-        normals = []
+    def draw_2d_labels(self):
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            
+            axis_length = 4.0
+            label_position_ratio = 0.7
+            
+            label_distance = axis_length * label_position_ratio
+            
+            positions = self.get_axis_line_positions(label_distance)
+            
+            if positions['x_pos']:
+                painter.setFont(self.label_font)
+                painter.setPen(QColor(255, 80, 80))
+                painter.drawText(int(positions['x_pos'][0] + 2), int(positions['x_pos'][1] - 5), "i")
+            
+            if positions['y_pos']:
+                painter.setFont(self.label_font)
+                painter.setPen(QColor(80, 255, 80))
+                painter.drawText(int(positions['y_pos'][0] + 2), int(positions['y_pos'][1] - 5), "j")
+            
+            if positions['z_pos']:
+                painter.setFont(self.label_font)
+                painter.setPen(QColor(80, 80, 255))
+                painter.drawText(int(positions['z_pos'][0] + 2), int(positions['z_pos'][1] - 5), "k")
+            
+            self.draw_stable_degree_label(painter)
+            
+            painter.end()
+            
+        except Exception as e:
+            print(f"Error drawing 2D labels: {e}")
+    
+    def get_axis_line_positions(self, label_distance):
+        positions = {
+            'x_pos': None,
+            'y_pos': None,
+            'z_pos': None
+        }
         
         try:
-            for face in obj_data.faces:
-                if len(face.vertex_indices) >= 3:
-                    v0_idx = face.vertex_indices[0]
-                    v1_idx = face.vertex_indices[1]
-                    v2_idx = face.vertex_indices[2]
-                    
-                    if (0 <= v0_idx < len(obj_data.vertices) and 
-                        0 <= v1_idx < len(obj_data.vertices) and 
-                        0 <= v2_idx < len(obj_data.vertices)):
-                        
-                        v0 = obj_data.vertices[v0_idx]
-                        v1 = obj_data.vertices[v1_idx]
-                        v2 = obj_data.vertices[v2_idx]
-                        
-                        edge1 = Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z)
-                        edge2 = Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z)
-                        
-                        normal = edge1.cross(edge2)
-                        if normal.magnitude() > 0:
-                            normal = normal.normalize()
-                        else:
-                            normal = Vector3(0, 0, 1)
-                        
-                        normals.append(normal)
-                    else:
-                        normals.append(Vector3(0, 0, 1))
-                else:
-                    normals.append(Vector3(0, 0, 1))
+            cache_key = f"axis_{self.camera_rotation_x:.0f}_{self.camera_rotation_y:.0f}_{self.camera_distance:.0f}"
+            
+            # Check cache dengan reduced frequency untuk stability
+            if cache_key in self.label_cache and self.cache_counter % 5 == 0:
+                return self.label_cache[cache_key]
+            
+            # X-axis label position
+            positions['x_pos'] = self.stable_world_to_screen(label_distance, 0, 0)
+            
+            # Y-axis label position 
+            positions['y_pos'] = self.stable_world_to_screen(0, label_distance, 0)
+            
+            # Z-axis label position
+            positions['z_pos'] = self.stable_world_to_screen(0, 0, label_distance)
+            
+            # Cache results
+            self.label_cache[cache_key] = positions
+            self.cache_counter += 1
+            
+            # Limit cache size untuk performance
+            if len(self.label_cache) > 15:
+                keys_to_remove = list(self.label_cache.keys())[:-8]
+                for key in keys_to_remove:
+                    del self.label_cache[key]
+            
+            return positions
+            
         except Exception as e:
-            print(f"Error calculating normals: {e}")
-            normals.append(Vector3(0, 0, 1))
-        
-        return normals
+            print(f"Error getting axis line positions: {e}")
+            return positions
     
+    def draw_stable_degree_label(self, painter):
+        if abs(self.rotation_angle) < 0.1:
+            return
+        
+        try:
+            axis = self.rotation_axis.normalize()
+            
+            # Use simpler calculation untuk stability
+            if abs(axis.z) < 0.9:
+                u = Vector3(0, 0, 1).cross(axis).normalize()
+            else:
+                u = Vector3(1, 0, 0).cross(axis).normalize()
+            
+            label_radius = 3.0
+            mid_angle = math.radians(self.rotation_angle / 2)
+            
+            # Simplified position calculation
+            mid_x = u.x * math.cos(mid_angle) * label_radius
+            mid_y = u.y * math.cos(mid_angle) * label_radius + 0.5
+            mid_z = u.z * math.cos(mid_angle) * label_radius
+            
+            label_screen = self.stable_world_to_screen(mid_x, mid_y, mid_z)
+            
+            if label_screen and self.is_position_visible(label_screen):
+                painter.setFont(self.degree_font)
+                painter.setPen(QColor(255, 255, 255))
+                
+                # Background untuk better visibility
+                degree_text = f"{self.rotation_angle:.1f}°"
+                text_rect = painter.fontMetrics().boundingRect(degree_text)
+                
+                # Draw semi-transparent background
+                painter.fillRect(
+                    int(label_screen[0] + 10),
+                    int(label_screen[1] - text_rect.height()),
+                    text_rect.width() + 4,
+                    text_rect.height() + 2,
+                    QColor(0, 0, 0, 128)
+                )
+                
+                painter.drawText(int(label_screen[0] + 12), int(label_screen[1]), degree_text)
+            
+        except Exception as e:
+            print(f"Error drawing stable degree label: {e}")
+    
+    def stable_world_to_screen(self, x, y, z):
+        try:
+            if not all([self.cached_modelview is not None, 
+                       self.cached_projection is not None, 
+                       self.cached_viewport is not None]):
+                return None
+            
+            screen_coords = glu.gluProject(
+                x, y, z, 
+                self.cached_modelview, 
+                self.cached_projection, 
+                self.cached_viewport
+            )
+            
+            if screen_coords:
+                screen_x = round(screen_coords[0])
+                screen_y = round(self.height() - screen_coords[1])
+                return (screen_x, screen_y)
+            return None
+            
+        except Exception as e:
+            return None
+    
+    def world_to_screen(self, x, y, z):
+        return self.stable_world_to_screen(x, y, z)
+    
+    def is_position_visible(self, screen_pos):
+        if not screen_pos:
+            return False
+        x, y = screen_pos
+        margin = 50
+        return -margin <= x <= self.width() + margin and -margin <= y <= self.height() + margin
+    
+    # Mouse interactions
     def wheelEvent(self, event):
+        """Handle mouse wheel for zoom"""
         delta = event.angleDelta().y()
         zoom_factor = 1.1
         
@@ -724,6 +501,8 @@ class OpenGLView(QOpenGLWidget):
         
         self.camera_distance = max(2.0, min(25.0, self.camera_distance))
         
+        # Clear cache on camera change
+        self.label_cache.clear()
         self.update()
     
     def mousePressEvent(self, event):
@@ -740,6 +519,9 @@ class OpenGLView(QOpenGLWidget):
             self.camera_rotation_x = max(-90, min(90, self.camera_rotation_x))
             
             self.last_mouse_pos = event.position()
+            
+            # Clear cache on camera movement
+            self.label_cache.clear()
             self.update()
     
     def mouseReleaseEvent(self, event):

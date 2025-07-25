@@ -105,9 +105,6 @@ class OBJLoader:
     @staticmethod
     def load_from_file(file_path: str) -> OBJData:
         return OBJLoader.load_obj(file_path)
-    
-    def load_from_file(self, file_path: str) -> OBJData:
-        return OBJLoader.load_obj(file_path)
 
     @staticmethod
     def _validate_obj_data(obj_data: OBJData):
