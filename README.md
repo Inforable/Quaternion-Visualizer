@@ -109,13 +109,6 @@ Dalam setiap screenshot dapat dilihat:
 
 ## Cara Menjalankan Program
 
-### Persyaratan Sistem
-
-- **Python 3.8** atau lebih tinggi
-- **Sistem Operasi**: Windows, Linux, atau macOS
-- **RAM**: Minimal 4GB (recommended 8GB)
-- **Graphics**: Support OpenGL 3.3+ (untuk OpenGL renderer)
-
 ### Instalasi Dependencies
 
 #### 1. Clone atau Download Repository
